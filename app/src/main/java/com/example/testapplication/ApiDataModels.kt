@@ -100,3 +100,8 @@ data class ConnectionUpdate(
     val newStatus: String // "accepted" or "declined"
 )
 
+data class FriendsResponse(
+    @SerializedName("usns")
+    val usns: List<String>
+)
+

@@ -53,4 +53,8 @@ interface ApiService {
         @Path("user_id") userId: UUID,
         @Body response: ConnectionUpdate
     ): Call<Unit> // Use Call<Unit> because there is no response body
+
+    @GET("api/v2/connections/{user_id}/friends")
+    fun getFriends(@Path("user_id") userId: UUID): Call<FriendsResponse>
+
 }

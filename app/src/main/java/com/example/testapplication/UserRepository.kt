@@ -43,4 +43,8 @@ class UserRepository(private val apiService: ApiService) {
     fun respondToRequest(userId: UUID, response: ConnectionUpdate): Call<Unit> {
         return apiService.respondToRequest(userId, response)
     }
+
+    fun getFriends(userId: UUID): Call<FriendsResponse> {
+        return apiService.getFriends(userId)
+    }
 }
