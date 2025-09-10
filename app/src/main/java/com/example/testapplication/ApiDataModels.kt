@@ -1,0 +1,102 @@
+package com.example.testapplication
+
+import com.google.gson.annotations.SerializedName
+import java.util.UUID
+
+data class BooleanResponse(
+    @SerializedName("is_valid")
+    val isValid: Boolean
+)
+
+data class ValidationResponse(
+    @SerializedName("is_valid")
+    val isValid: Boolean,
+    @SerializedName("user_id")
+    val userId: UUID?
+)
+
+data class StatusResponse(
+    @SerializedName("message")
+    val message: String
+)
+
+data class UserCreate(
+    val email: String,
+    val password: String
+)
+
+data class ConnectionRequest(
+    @SerializedName("addressee_id")
+    val addresseeId: UUID
+)
+
+data class AccountSetup(
+    val name: String,
+    @SerializedName("university_reg_no")
+    val universityRegNo: String,
+    val biography: String?,
+    val interest1: String?,
+    @SerializedName("interest1_weight")
+    val interest1Weight: Int?,
+    val interest2: String?,
+    @SerializedName("interest2_weight")
+    val interest2Weight: Int?,
+    val interest3: String?,
+    @SerializedName("interest3_weight")
+    val interest3Weight: Int?
+)
+
+data class MatchResponse(
+    @SerializedName("matches")
+    val matches: List<UUID>
+)
+
+data class UserProfile(
+    @SerializedName("university_reg_no")
+    val universityRegNo: String?,
+
+    @SerializedName("biography")
+    val biography: String?,
+
+    @SerializedName("interest1")
+    val interest1: String?,
+
+    @SerializedName("interest2")
+    val interest2: String?,
+
+    @SerializedName("interest3")
+    val interest3: String?
+)
+
+// In ApiDataModels.kt
+
+// ADD THIS CLASS
+data class PendingRequestDetail(
+    @SerializedName("requester_id")
+    val requesterId: UUID,
+
+    @SerializedName("university_reg_no")
+    val universityRegNo: String?,
+
+    @SerializedName("biography")
+    val biography: String?,
+
+    @SerializedName("interest1")
+    val interest1: String?,
+
+    @SerializedName("interest2")
+    val interest2: String?,
+
+    @SerializedName("interest3")
+    val interest3: String?
+)
+
+// ADD THIS CLASS
+data class ConnectionUpdate(
+    @SerializedName("requester_id")
+    val requesterId: UUID,
+
+    @SerializedName("new_status")
+    val newStatus: String // "accepted" or "declined"
+)
+
