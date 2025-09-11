@@ -53,4 +53,23 @@ interface ApiService {
         @Path("user_id") userId: UUID,
         @Body response: ConnectionUpdate
     ): Call<Unit> // Use Call<Unit> because there is no response body
+
+    @GET("api/v2/connections/{user_id}/friends")
+    fun getFriends(@Path("user_id") userId: UUID): Call<FriendsResponse>
+
+    @POST("api/v3/messages/{sender_id}/send")
+    fun sendMessage(
+        @Path("sender_id") senderId: UUID,
+        @Body message: MessageCreate
+    ): Call<MessageResponse>
+
+    @GET("api/v3/messages/{user_id}/conversation/{other_user_id}")
+    fun getConversationHistory(
+        @Path("user_id") userId: UUID,
+        @Path("other_user_id") otherUserId: UUID
+    ): Call<List<MessageResponse>>
+
+    @GET("api/v1/users/{user_id}/Fullprofile")
+    fun getUserFullProfile(@Path("user_id") userId: UUID): Call<GetFullProfile>
+
 }

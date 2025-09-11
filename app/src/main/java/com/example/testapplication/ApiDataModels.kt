@@ -2,6 +2,7 @@ package com.example.testapplication
 
 import com.google.gson.annotations.SerializedName
 import java.util.UUID
+import java.time.OffsetDateTime
 
 data class BooleanResponse(
     @SerializedName("is_valid")
@@ -98,5 +99,65 @@ data class ConnectionUpdate(
 
     @SerializedName("new_status")
     val newStatus: String // "accepted" or "declined"
+)
+
+data class FriendsResponse(
+    @SerializedName("usns")
+    val usns: List<String>
+)
+
+data class MessageCreate(
+    @SerializedName("receiver_id")
+    val receiverId: UUID,
+
+    @SerializedName("content")
+    val content: String
+)
+
+// ADD THIS CLASS: For receiving a message's details
+data class MessageResponse(
+    @SerializedName("id")
+    val id: Long,
+
+    @SerializedName("sender_id")
+    val senderId: UUID,
+
+    @SerializedName("receiver_id")
+    val receiverId: UUID,
+
+    @SerializedName("content")
+    val content: String,
+
+    @SerializedName("timestamp")
+    val timestamp: OffsetDateTime // Use OffsetDateTime for timezone support
+)
+
+data class GetFullProfile(
+    @SerializedName("name")
+    val name: String,
+
+    @SerializedName("university_reg_no")
+    val universityRegNo: String,
+
+    @SerializedName("biography")
+    val biography: String?,
+
+    @SerializedName("interest1")
+    val interest1: String?,
+
+    @SerializedName("interest1_weight")
+    val interest1Weight: Int?,
+
+    @SerializedName("interest2")
+    val interest2: String?,
+
+    @SerializedName("interest2_weight")
+    val interest2Weight: Int?,
+
+    @SerializedName("interest3")
+    val interest3: String?,
+
+    @SerializedName("interest3_weight")
+    val interest3Weight: Int?
 )
 

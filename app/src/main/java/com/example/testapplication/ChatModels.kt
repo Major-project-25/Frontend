@@ -1,2 +1,17 @@
 package com.example.testapplication
 
+import java.util.UUID
+
+// Represents who sent a message
+enum class MessageAuthor {
+    ME, THEM
+}
+
+// Represents a single chat message
+data class Message(
+    val id: UUID = UUID.randomUUID(),
+    val text: String,
+    val author: MessageAuthor,
+    val timestamp: String, // e.g., "10:10"
+    val date: String? = null // e.g., "Fri, Jul 26"
+)

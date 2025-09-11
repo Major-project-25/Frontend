@@ -137,7 +137,7 @@ fun AppNavigation() {
             ) { backStackEntry ->
                 val userId = backStackEntry.arguments?.getString("userId")?.let { UUID.fromString(it) }
                 if (userId != null) {
-                    val profileViewModel: ProfileViewModel = viewModel()
+                    val profileViewModel: ProfileSetupViewModel = viewModel()
                     ProfileSetupScreen(
                         navController = navController,
                         viewModel = profileViewModel,
@@ -157,11 +157,33 @@ fun AppNavigation() {
             composable("general_interface") {
                 GeneralInterfaceScreen()
             }
-            composable("profile") {
-                ProfileScreen()
-            }
+
             composable("requests") {
                 RequestsScreen(navController = navController)
+            }
+
+            // In your NavHost inside AppNavigation()
+
+            composable(
+                "chat/{usn}",
+                arguments = listOf(navArgument("usn") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val usn = backStackEntry.arguments?.getString("usn")
+                if (usn != null) {
+                    ChatScreen(navController = navController, friendUsn = usn)
+                }
+            }
+            composable("profile") {
+                // Replace the old placeholder with this new function call
+                ProfileScreen(navController = navController)
+            }
+
+            composable("profile") {
+                ProfileScreen(navController = navController)
+            }
+
+            composable("edit_profile") {
+                EditProfileScreen(navController = navController)
             }
         }
     }
@@ -398,7 +420,7 @@ fun SetupAccountScreen(navController: NavController, userId: UUID) {
 @Composable
 fun ProfileSetupScreen(
     navController: NavController,
-    viewModel: ProfileViewModel,
+    viewModel: ProfileSetupViewModel,
     sessionManager: SessionManager,
     userId: UUID
 ) {
