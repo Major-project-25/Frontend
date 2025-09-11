@@ -21,6 +21,10 @@ class UserRepository(private val apiService: ApiService) {
     }
 
     // ADD THIS FUNCTION
+    fun getUserFullProfile(userId: UUID): Call<GetFullProfile> {
+        return apiService.getUserFullProfile(userId)
+    }
+
     fun getUserProfile(userId: UUID): Call<UserProfile> {
         return apiService.getUserProfile(userId)
     }
@@ -47,4 +51,14 @@ class UserRepository(private val apiService: ApiService) {
     fun getFriends(userId: UUID): Call<FriendsResponse> {
         return apiService.getFriends(userId)
     }
+
+    fun sendMessage(senderId: UUID, message: MessageCreate): Call<MessageResponse> {
+        return apiService.sendMessage(senderId, message)
+    }
+
+    fun getConversationHistory(userId: UUID, otherUserId: UUID): Call<List<MessageResponse>> {
+        return apiService.getConversationHistory(userId, otherUserId)
+    }
+
+
 }
