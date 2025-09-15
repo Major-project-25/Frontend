@@ -90,4 +90,15 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.7")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")
+    //implementation("com.squareup.okhttp3:okhttp-logging-interceptor:4.12.0")
+
+    // In your dependencies block
+
+// Ktor for WebSockets
+    implementation("io.ktor:ktor-client-core:2.3.11")
+    implementation("io.ktor:ktor-client-cio:2.3.11") // Engine for the client
+    implementation("io.ktor:ktor-client-websockets:2.3.11")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.11")
+    implementation("io.ktor:ktor-serialization-gson:2.3.11")
+
 }

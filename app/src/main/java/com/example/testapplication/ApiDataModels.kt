@@ -102,34 +102,8 @@ data class ConnectionUpdate(
 )
 
 data class FriendsResponse(
-    @SerializedName("usns")
-    val usns: List<String>
-)
-
-data class MessageCreate(
-    @SerializedName("receiver_id")
-    val receiverId: UUID,
-
-    @SerializedName("content")
-    val content: String
-)
-
-// ADD THIS CLASS: For receiving a message's details
-data class MessageResponse(
-    @SerializedName("id")
-    val id: Long,
-
-    @SerializedName("sender_id")
-    val senderId: UUID,
-
-    @SerializedName("receiver_id")
-    val receiverId: UUID,
-
-    @SerializedName("content")
-    val content: String,
-
-    @SerializedName("timestamp")
-    val timestamp: OffsetDateTime // Use OffsetDateTime for timezone support
+    @SerializedName("friends")
+    val friends: List<FriendDetail>
 )
 
 data class GetFullProfile(
@@ -159,5 +133,38 @@ data class GetFullProfile(
 
     @SerializedName("interest3_weight")
     val interest3Weight: Int?
+)
+
+// In ApiDataModels.kt
+
+// For sending a new message
+data class MessageCreate(
+    @SerializedName("receiver_id")
+    val receiverId: UUID,
+    @SerializedName("content")
+    val content: String
+)
+
+// For receiving a message's details
+data class MessageResponse(
+    @SerializedName("id")
+    val id: Long,
+    @SerializedName("sender_id")
+    val senderId: UUID,
+    @SerializedName("receiver_id")
+    val receiverId: UUID,
+    @SerializedName("content")
+    val content: String,
+    @SerializedName("timestamp")
+    val timestamp: String // Using String for simplicity
+)
+
+data class FriendDetail(
+    @SerializedName("user_id")
+    val userId: UUID,
+    @SerializedName("university_reg_no")
+    val universityRegNo: String?,
+    @SerializedName("name")
+    val name: String?
 )
 

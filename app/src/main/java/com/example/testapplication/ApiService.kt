@@ -72,4 +72,5 @@ interface ApiService {
     @GET("api/v1/users/{user_id}/Fullprofile")
     fun getUserFullProfile(@Path("user_id") userId: UUID): Call<GetFullProfile>
 
+
 }

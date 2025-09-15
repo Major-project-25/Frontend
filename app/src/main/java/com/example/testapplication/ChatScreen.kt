@@ -28,30 +28,25 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-// Note: You will need to get the friend's UUID to fetch the chat history.
-// For now, we will pass the USN, but a real app would need the ID.
-// This is a placeholder until you have a way to get a user's ID from their USN.
-val friendIdPlaceholder = UUID.randomUUID() // Replace this later
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
     navController: NavController,
-    friendUsn: String,
+    friendName: String,
+    friendId: UUID, // Receives the real friend's UUID
     chatViewModel: ChatViewModel = viewModel()
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
+    val uiState by chatViewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Fetch the chat history when the screen is first launched with a valid user ID.
-    LaunchedEffect(userId) {
+    // When the screen launches with a valid user ID, load the chat.
+    LaunchedEffect(userId, friendId) {
         userId?.let {
-            // In a real app, you would get the friend's UUID from their USN.
-            // For now, we use a placeholder.
-            chatViewModel.fetchHistory(it, friendIdPlaceholder)
+            chatViewModel.loadChat(it, friendId)
         }
     }
 
@@ -59,13 +54,14 @@ fun ChatScreen(
         topBar = {
             ChatTopBar(
                 navController = navController,
-                friendUsn = friendUsn
+                friendName = friendName
             )
         },
         bottomBar = {
             ChatInputBar(onSendMessage = { messageContent ->
+                // Pass the current user's ID along with the other info
                 userId?.let {
-                    chatViewModel.sendMessage(it, friendIdPlaceholder, messageContent)
+                    chatViewModel.sendMessage(friendId, messageContent, it)
                 }
             })
         }
@@ -76,70 +72,41 @@ fun ChatScreen(
                 .padding(innerPadding),
             contentAlignment = Alignment.Center
         ) {
-            when (val state = chatViewModel.uiState) {
-                is ChatUiState.Loading -> {
-                    CircularProgressIndicator()
-                }
-                is ChatUiState.Success -> {
-                    if (state.messages.isEmpty()) {
-                        Text(
-                            text = "No messages here yet.\nBe the first to say hi!",
-                            textAlign = TextAlign.Center,
-                            color = Color.Gray
-                        )
-                    } else {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 8.dp),
-                            reverseLayout = true
-                        ) {
-                            items(state.messages.reversed()) { message ->
-                                Column {
-                                    MessageBubble(message = message)
-                                    message.date?.let {
-                                        DateDivider(date = it)
-                                    }
-                                }
-                            }
-                        }
-                        // Scroll to the bottom when new messages arrive
-                        LaunchedEffect(state.messages.size) {
-                            coroutineScope.launch {
-                                listState.animateScrollToItem(0)
-                            }
-                        }
+            if (uiState.isLoading) {
+                CircularProgressIndicator()
+            } else if (uiState.error != null) {
+                Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
+            } else if (uiState.messages.isEmpty()) {
+                Text(
+                    text = "No messages here yet.\nBe the first to say hi!",
+                    textAlign = TextAlign.Center,
+                    color = Color.Gray
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 8.dp),
+                    reverseLayout = true
+                ) {
+                    items(uiState.messages.reversed()) { message ->
+                        MessageBubble(message = message)
                     }
                 }
-                is ChatUiState.Error -> {
-                    Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
+                // Automatically scroll to the bottom when new messages arrive
+                LaunchedEffect(uiState.messages.size) {
+                    if (uiState.messages.isNotEmpty()) {
+                        coroutineScope.launch {
+                            listState.animateScrollToItem(0)
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-
-@Composable
-fun DateDivider(date: String) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = date,
-            fontSize = 12.sp,
-            color = Color.Gray,
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFFF0F0F0))
-                .padding(horizontal = 8.dp, vertical = 4.dp)
-        )
-    }
-}
 
 @Composable
 fun MessageBubble(message: Message) {
@@ -176,13 +143,13 @@ fun MessageBubble(message: Message) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatTopBar(navController: NavController, friendUsn: String) {
+fun ChatTopBar(navController: NavController, friendName: String) {
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.AccountCircle, contentDescription = "Profile", modifier = Modifier.size(36.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(friendUsn, fontWeight = FontWeight.SemiBold)
+                Text(friendName, fontWeight = FontWeight.SemiBold)
             }
         },
         navigationIcon = {

@@ -8,7 +8,7 @@ object RetrofitInstance {
 
     // IMPORTANT: Use 10.0.2.2 for the Android Emulator.
     // If using a real phone, replace this with your computer's local IP address.
-    private const val BASE_URL = "http://172.17.2.12:8000/"
+    private const val BASE_URL = "http://172.17.1.140:8000/"
     //private const val BASE_URL = "http://192.168.32.63:8000/"
     // Custom Gson instance to handle UUIDs from the API
     private val gson = GsonBuilder()

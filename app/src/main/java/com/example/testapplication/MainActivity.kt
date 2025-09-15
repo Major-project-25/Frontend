@@ -165,12 +165,21 @@ fun AppNavigation() {
             // In your NavHost inside AppNavigation()
 
             composable(
-                "chat/{usn}",
-                arguments = listOf(navArgument("usn") { type = NavType.StringType })
+                "chat/{name}/{userId}",
+                arguments = listOf(
+                    navArgument("name") { type = NavType.StringType },
+                    navArgument("userId") { type = NavType.StringType }
+                )
             ) { backStackEntry ->
-                val usn = backStackEntry.arguments?.getString("usn")
-                if (usn != null) {
-                    ChatScreen(navController = navController, friendUsn = usn)
+                val name = backStackEntry.arguments?.getString("name") ?: "User"
+                val userIdString = backStackEntry.arguments?.getString("userId")
+
+                if (userIdString != null) {
+                    ChatScreen(
+                        navController = navController,
+                        friendName = name,
+                        friendId = UUID.fromString(userIdString)
+                    )
                 }
             }
             composable("profile") {
