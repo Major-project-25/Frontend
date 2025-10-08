@@ -13,7 +13,9 @@ data class ValidationResponse(
     @SerializedName("is_valid")
     val isValid: Boolean,
     @SerializedName("user_id")
-    val userId: UUID?
+    val userId: UUID?,
+    @SerializedName("is_admin")
+    val isAdmin: Boolean? = false // Add this new field
 )
 
 data class StatusResponse(
@@ -166,5 +168,18 @@ data class FriendDetail(
     val universityRegNo: String?,
     @SerializedName("name")
     val name: String?
+)
+
+data class PostResponse(
+    val id: UUID,
+    val content: String?,
+    val media_url: String?,
+    val content_type: String,
+    val created_at: String, // Using String for simplicity
+    val author_id: UUID
+)
+data class MeetLinkResponse(
+    @SerializedName("meet_link")
+    val meetLink: String
 )
 

@@ -1,6 +1,10 @@
 // In ApiService.kt
 package com.example.testapplication
 
+import okhttp3.MultipartBody
+import okhttp3.RequestBody
+import retrofit2.http.Multipart
+import retrofit2.http.Part
 import retrofit2.Call
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -72,5 +76,20 @@ interface ApiService {
     @GET("api/v1/users/{user_id}/Fullprofile")
     fun getUserFullProfile(@Path("user_id") userId: UUID): Call<GetFullProfile>
 
+    @Multipart
+    @POST("api/v4/admin/{admin_id}/posts")
+    fun createPost(
+        @Path("admin_id") adminId: UUID,
+        @Part("content") content: RequestBody?,
+        @Part file: MultipartBody.Part?
+    ): Call<PostResponse>
 
+    @GET("api/v4/posts/")
+    fun getAllPosts(): Call<List<PostResponse>>
+
+    @GET("api/v3/messages/{user_id}/meet/{other_user_id}")
+    fun getVideoCallLink(
+        @Path("user_id") userId: UUID,
+        @Path("other_user_id") otherUserId: UUID
+    ): Call<MeetLinkResponse>
 }

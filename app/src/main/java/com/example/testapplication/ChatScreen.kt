@@ -1,5 +1,6 @@
 package com.example.testapplication
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -26,6 +28,9 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
 import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -33,7 +38,7 @@ import java.util.UUID
 fun ChatScreen(
     navController: NavController,
     friendName: String,
-    friendId: UUID, // Receives the real friend's UUID
+    friendId: UUID,
     chatViewModel: ChatViewModel = viewModel()
 ) {
     val context = LocalContext.current
@@ -42,8 +47,8 @@ fun ChatScreen(
     val uiState by chatViewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val uriHandler = LocalUriHandler.current
 
-    // When the screen launches with a valid user ID, load the chat.
     LaunchedEffect(userId, friendId) {
         userId?.let {
             chatViewModel.loadChat(it, friendId)
@@ -54,12 +59,27 @@ fun ChatScreen(
         topBar = {
             ChatTopBar(
                 navController = navController,
-                friendName = friendName
+                friendName = friendName,
+                onVideoCallClick = {
+                    // When the video icon is clicked, call the API
+                    if (userId != null) {
+                        RetrofitInstance.api.getVideoCallLink(userId!!, friendId).enqueue(object : Callback<MeetLinkResponse> {
+                            override fun onResponse(call: Call<MeetLinkResponse>, response: Response<MeetLinkResponse>) {
+                                response.body()?.meetLink?.let { link ->
+                                    // Open the received link in the browser
+                                    uriHandler.openUri(link)
+                                }
+                            }
+                            override fun onFailure(call: Call<MeetLinkResponse>, t: Throwable) {
+                                Toast.makeText(context, "Could not generate video call link.", Toast.LENGTH_SHORT).show()
+                            }
+                        })
+                    }
+                }
             )
         },
         bottomBar = {
             ChatInputBar(onSendMessage = { messageContent ->
-                // Pass the current user's ID along with the other info
                 userId?.let {
                     chatViewModel.sendMessage(friendId, messageContent, it)
                 }
@@ -94,7 +114,6 @@ fun ChatScreen(
                         MessageBubble(message = message)
                     }
                 }
-                // Automatically scroll to the bottom when new messages arrive
                 LaunchedEffect(uiState.messages.size) {
                     if (uiState.messages.isNotEmpty()) {
                         coroutineScope.launch {
@@ -111,7 +130,7 @@ fun ChatScreen(
 @Composable
 fun MessageBubble(message: Message) {
     val isMyMessage = message.author == MessageAuthor.ME
-    val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0) // Light green / light gray
+    val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0)
     val horizontalArrangement = if (isMyMessage) Arrangement.End else Arrangement.Start
     val shape = if (isMyMessage) {
         RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp)
@@ -143,7 +162,11 @@ fun MessageBubble(message: Message) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatTopBar(navController: NavController, friendName: String) {
+fun ChatTopBar(
+    navController: NavController,
+    friendName: String,
+    onVideoCallClick: () -> Unit // Add this callback
+) {
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -158,7 +181,8 @@ fun ChatTopBar(navController: NavController, friendName: String) {
             }
         },
         actions = {
-            IconButton(onClick = { /* TODO: Video call action */ }) {
+            // Update the IconButton to use the callback
+            IconButton(onClick = onVideoCallClick) {
                 Icon(Icons.Default.Videocam, contentDescription = "Video Call")
             }
         }
@@ -193,7 +217,7 @@ fun ChatInputBar(onSendMessage: (String) -> Unit) {
             IconButton(onClick = {
                 if (text.isNotBlank()) {
                     onSendMessage(text)
-                    text = "" // Clear the input field after sending
+                    text = ""
                 }
             }) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send Message")

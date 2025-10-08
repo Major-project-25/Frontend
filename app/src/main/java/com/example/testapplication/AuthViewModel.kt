@@ -9,7 +9,6 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 
-// The constructor now requires a SessionManager instance.
 class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
     private val userRepository = UserRepository(RetrofitInstance.api)
 
@@ -22,21 +21,15 @@ class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
                 val result = response.body()
                 // Check for a successful result with a valid user ID
                 if (result != null && result.isValid && result.userId != null) {
-                    // Launch a coroutine to save the session data
                     viewModelScope.launch {
                         sessionManager.saveUserId(result.userId)
-                        // Note: You might want to wait until profile setup is complete
-                        // before setting isLoggedIn to true, but for now, we'll save the ID.
                     }
-                    _authResult.value = result
-                } else {
-                    // Handle failure
-                    _authResult.value = ValidationResponse(isValid = false, userId = null)
                 }
+                _authResult.value = result
             }
 
             override fun onFailure(call: Call<ValidationResponse>, t: Throwable) {
-                _authResult.value = ValidationResponse(isValid = false, userId = null)
+                _authResult.value = ValidationResponse(isValid = false, userId = null, isAdmin = false)
             }
         })
     }
@@ -45,22 +38,19 @@ class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
         userRepository.loginUser(loginData).enqueue(object : Callback<ValidationResponse> {
             override fun onResponse(call: Call<ValidationResponse>, response: Response<ValidationResponse>) {
                 val result = response.body()
-                // Check for a successful result with a valid user ID
                 if (result != null && result.isValid && result.userId != null) {
-                    // Launch a coroutine to save the session data
                     viewModelScope.launch {
                         sessionManager.saveUserId(result.userId)
                         sessionManager.setLoggedIn(true)
+                        // Save the admin status here
+                        sessionManager.setAdminStatus(result.isAdmin ?: false)
                     }
-                    _authResult.value = result
-                } else {
-                    // Handle failure
-                    _authResult.value = ValidationResponse(isValid = false, userId = null)
                 }
+                // Pass the full result, including the admin flag
+                _authResult.value = result
             }
-
             override fun onFailure(call: Call<ValidationResponse>, t: Throwable) {
-                _authResult.value = ValidationResponse(isValid = false, userId = null)
+                _authResult.value = ValidationResponse(isValid = false, userId = null, isAdmin = false)
             }
         })
     }

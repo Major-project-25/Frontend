@@ -16,6 +16,8 @@ class SessionManager(private val context: Context) {
     companion object {
         val IS_LOGGED_IN = booleanPreferencesKey("is_logged_in")
         val USER_ID = stringPreferencesKey("user_id")
+
+        val IS_ADMIN = booleanPreferencesKey("is_admin")
     }
 
     suspend fun setLoggedIn(isLoggedIn: Boolean) {
@@ -38,6 +40,17 @@ class SessionManager(private val context: Context) {
     val getUserIdFlow: Flow<UUID?> = context.dataStore.data
         .map { preferences ->
             preferences[USER_ID]?.let { UUID.fromString(it) }
+        }
+
+    suspend fun setAdminStatus(isAdmin: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[IS_ADMIN] = isAdmin
+        }
+    }
+
+    val isAdminFlow: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[IS_ADMIN] ?: false
         }
 
 }
