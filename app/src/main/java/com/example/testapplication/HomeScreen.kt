@@ -1,5 +1,6 @@
 package com.example.testapplication
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,50 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.compose.foundation.clickable
-
-@Composable
-fun FriendsList(friends: List<String>, navController: NavController) { // 1. Add NavController here
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(vertical = 8.dp)
-    ) {
-        items(friends) { usn ->
-            // 2. Pass a clickable modifier to FriendRow
-            FriendRow(
-                usn = usn,
-                modifier = Modifier.clickable {
-                    navController.navigate("chat/$usn")
-                }
-            )
-            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-        }
-    }
-}
-
-// 3. Update FriendRow to accept and use the modifier
-@Composable
-fun FriendRow(usn: String, modifier: Modifier = Modifier) {
-    Row(
-        modifier = modifier // Apply the modifier here
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            imageVector = Icons.Default.AccountCircle,
-            contentDescription = "Profile Icon",
-            modifier = Modifier.size(48.dp),
-            tint = Color.Gray
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = usn,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
 
 @Composable
 fun HomeScreen(
@@ -77,7 +34,6 @@ fun HomeScreen(
     val sessionManager = remember { SessionManager(context) }
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
 
-    // When the screen is first shown and we have a user ID, fetch the friends list
     LaunchedEffect(userId) {
         userId?.let {
             homeViewModel.fetchFriends(it)
@@ -94,8 +50,8 @@ fun HomeScreen(
                 }
             }
             is HomeUiState.Success -> {
-                // CORRECTED: Pass the navController here
-                FriendsList(friends = state.friendUsns, navController = navController)
+                // Pass the new, detailed list of friends to the UI
+                FriendsList(friends = state.friends, navController = navController)
             }
             is HomeUiState.Empty -> {
                 EmptyChatView(navController = navController)
@@ -109,45 +65,79 @@ fun HomeScreen(
     }
 }
 
+// UPDATE: This now accepts a list of FriendDetail objects
+@Composable
+fun FriendsList(friends: List<FriendDetail>, navController: NavController) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp)
+    ) {
+        items(friends) { friend ->
+            FriendRow(
+                friend = friend, // Pass the whole friend object
+                modifier = Modifier.clickable {
+                    // Navigate with the friend's name and ID.
+                    // This is the crucial fix.
+                    val friendName = friend.name ?: "User"
+                    val friendId = friend.userId
+                    navController.navigate("chat/$friendName/$friendId")
+                }
+            )
+            HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+        }
+    }
+}
+
+// UPDATE: This now accepts a FriendDetail object
+@Composable
+fun FriendRow(friend: FriendDetail, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.AccountCircle,
+            contentDescription = "Profile Icon",
+            modifier = Modifier.size(48.dp),
+            tint = Color.Gray
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        // Display the friend's name and USN
+        Column {
+            Text(
+                text = friend.name ?: "Unknown User",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = friend.universityRegNo ?: "",
+                fontSize = 14.sp,
+                color = Color.Gray
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeTopBar(navController: NavController) {
     CenterAlignedTopAppBar(
         title = {
-            Text(
-                "Chats",
-                fontWeight = FontWeight.Bold,
-                fontSize = 28.sp,
-                color = Color.White
-            )
+            Text("Chats", fontWeight = FontWeight.Bold, fontSize = 28.sp, color = Color.White)
         },
         actions = {
-            IconButton(
-                onClick = { navController.navigate("requests") },
-                modifier = Modifier
-                    .padding(end = 8.dp)
-                    .size(48.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Requests",
-                    modifier = Modifier.fillMaxSize(),
-                    tint = Color.White
-                )
+            IconButton(onClick = { navController.navigate("requests") }) {
+                Icon(Icons.Default.Add, contentDescription = "Requests", modifier = Modifier.fillMaxSize(), tint = Color.White)
             }
         },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = Color(0xFF0077FF)
-        )
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color(0xFF0077FF))
     )
 }
 
 @Composable
-fun EmptyChatView(
-    modifier: Modifier = Modifier,
-    navController: NavController
-) {
+fun EmptyChatView(modifier: Modifier = Modifier, navController: NavController) {
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -160,11 +150,7 @@ fun EmptyChatView(
             shape = RoundedCornerShape(50),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
         ) {
-            Text(
-                "Network",
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp),
-                fontSize = 16.sp
-            )
+            Text("Network", modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp), fontSize = 16.sp)
         }
     }
 }

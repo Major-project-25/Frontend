@@ -10,9 +10,9 @@ import retrofit2.Callback
 import retrofit2.Response
 import java.util.UUID
 
-// UI State for the Home Screen
+// The UI State now holds a list of the new FriendDetail objects
 sealed interface HomeUiState {
-    data class Success(val friendUsns: List<String>) : HomeUiState
+    data class Success(val friends: List<FriendDetail>) : HomeUiState
     object Empty : HomeUiState
     object Error : HomeUiState
     object Loading : HomeUiState
@@ -29,11 +29,11 @@ class HomeViewModel : ViewModel() {
         userRepository.getFriends(userId).enqueue(object : Callback<FriendsResponse> {
             override fun onResponse(call: Call<FriendsResponse>, response: Response<FriendsResponse>) {
                 if (response.isSuccessful) {
-                    val usns = response.body()?.usns
-                    if (usns.isNullOrEmpty()) {
+                    val friendsList = response.body()?.friends
+                    if (friendsList.isNullOrEmpty()) {
                         uiState = HomeUiState.Empty
                     } else {
-                        uiState = HomeUiState.Success(usns)
+                        uiState = HomeUiState.Success(friendsList)
                     }
                 } else {
                     uiState = HomeUiState.Error

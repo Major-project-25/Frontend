@@ -59,6 +59,13 @@ class UserRepository(private val apiService: ApiService) {
     fun getConversationHistory(userId: UUID, otherUserId: UUID): Call<List<MessageResponse>> {
         return apiService.getConversationHistory(userId, otherUserId)
     }
+    fun getAllPosts(): Call<List<PostResponse>> {
+        return apiService.getAllPosts()
+    }
+
+    fun getVideoCallLink(userId: UUID, otherUserId: UUID): Call<MeetLinkResponse> {
+        return apiService.getVideoCallLink(userId, otherUserId)
+    }
 
 
 }

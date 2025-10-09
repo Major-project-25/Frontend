@@ -12,6 +12,7 @@ data class Message(
     val id: UUID = UUID.randomUUID(),
     val text: String,
     val author: MessageAuthor,
+    val authorId: UUID,
     val timestamp: String, // e.g., "10:10"
     val date: String? = null // e.g., "Fri, Jul 26"
 )
