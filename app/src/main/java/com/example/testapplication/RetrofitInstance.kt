@@ -17,7 +17,7 @@ object RetrofitInstance {
     //3)Generalinterfacescreen
 
     //private const val BASE_URL = "http://172.17.6.125:8000/"
-    private const val BASE_URL = "http://10.100.211.211:8000/"
+    private const val BASE_URL = "http://172.17.2.88:8000/"
     // Custom Gson instance to handle UUIDs from the API
     private val gson = GsonBuilder()
         .registerTypeAdapter(java.util.UUID::class.java, UuidTypeAdapter())

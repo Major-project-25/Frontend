@@ -86,7 +86,7 @@ fun PostCard(post: PostResponse) {
         Column {
             if (post.media_url != null) {
                 AsyncImage(
-                    model = "http://10.100.211.211:8000${post.media_url}", // IMPORTANT: Use your server IP
+                    model = "http://172.17.2.88:8000${post.media_url}", // IMPORTANT: Use your server IP
                     contentDescription = post.content,
                     modifier = Modifier
                         .fillMaxWidth()
