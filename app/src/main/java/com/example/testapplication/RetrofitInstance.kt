@@ -6,18 +6,9 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 object RetrofitInstance {
 
-    // IMPORTANT: Use 10.0.2.2 for the Android Emulator.
-    // If using a real phone, replace this with your computer's local IP address.
-    //private const val BASE_URL = "http://10.100.211.210:8000/"
+    // FIX: Define BASE_URL as a standard public property of the object.
+    val BASE_URL = "http://172.17.2.88:8000/"
 
-    //IMPORTANT:
-    // Where i am supposed to change
-    //1)RetrofitInstance
-    //2)Ktorwebsocketservice
-    //3)Generalinterfacescreen
-
-    //private const val BASE_URL = "http://172.17.6.125:8000/"
-    private const val BASE_URL = "http://172.17.2.88:8000/"
     // Custom Gson instance to handle UUIDs from the API
     private val gson = GsonBuilder()
         .registerTypeAdapter(java.util.UUID::class.java, UuidTypeAdapter())

@@ -1,6 +1,9 @@
 package com.example.testapplication
 
+import android.net.Uri // ADDED
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult // ADDED
+import androidx.activity.result.contract.ActivityResultContracts // ADDED
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale // ADDED
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -27,12 +31,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.compose.runtime.snapshotFlow // <-- CRITICAL NEW IMPORT
+import androidx.compose.runtime.snapshotFlow // ADDED
 import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.util.UUID
+import coil.compose.AsyncImage // ADDED
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,6 +59,34 @@ fun ChatScreen(
     var unreadCount by remember { mutableIntStateOf(0) }
     val lastKnownMessageCount = remember { mutableIntStateOf(0) }
     // --- END NEW STATE ---
+
+    // --- NEW: File Picker Launcher ---
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            val currentUserId = userId
+            if (currentUserId == null) {
+                Toast.makeText(context, "User not authenticated.", Toast.LENGTH_SHORT).show()
+                return@let
+            }
+
+            // Determine file details and initiate upload
+            val mimeType = context.contentResolver.getType(it) ?: "application/octet-stream"
+            // NOTE: getFile is assumed to be available from FileUtility.kt
+            val file = context.contentResolver.getFile(context, it)
+
+            val messageType = when {
+                mimeType.startsWith("image/") -> "image"
+                mimeType.startsWith("video/") -> "video"
+                else -> "file"
+            }
+
+            chatViewModel.sendMediaMessage(currentUserId, friendId, it, mimeType, messageType)
+            unreadCount = 0 // Reset count since sender is viewing screen
+        }
+    }
+    // --- END NEW LAUNCHER ---
 
     LaunchedEffect(userId, friendId) {
         userId?.let {
@@ -87,7 +120,6 @@ fun ChatScreen(
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { firstVisibleIndex ->
-                // The indicator vanishes immediately when the user scrolls to the newest message (index 0).
                 if (firstVisibleIndex == 0) {
                     if (unreadCount > 0) {
                         unreadCount = 0
@@ -121,13 +153,19 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            ChatInputBar(onSendMessage = { messageContent ->
-                userId?.let {
-                    chatViewModel.sendMessage(friendId, messageContent, it)
-                    // Reset count when sender sends a message
-                    unreadCount = 0
+            // UPDATED: Pass the onPlusClick lambda
+            ChatInputBar(
+                onSendMessage = { messageContent ->
+                    userId?.let {
+                        chatViewModel.sendMessage(friendId, messageContent, it)
+                        unreadCount = 0
+                    }
+                },
+                onPlusClick = {
+                    // Trigger the file picker
+                    filePickerLauncher.launch("image/*,video/*")
                 }
-            })
+            )
         }
     ) { innerPadding ->
         Box(
@@ -154,13 +192,10 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp),
                     reverseLayout = true
                 ) {
-                    // This is your original, working item structure
                     items(uiState.messages.reversed()) { message ->
                         MessageBubble(message = message)
                     }
                 }
-                // NOTE: The original LaunchedEffect for autoscroll has been superseded
-                // by the logic in LOGIC 1 above, which handles initial scroll.
             }
 
             // --- UI: Floating Button/Badge for Manual Scroll ---
@@ -221,10 +256,31 @@ fun MessageBubble(message: Message) {
                 .background(bubbleColor)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(text = message.text, color = Color.Black, fontSize = 16.sp)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = message.timestamp, color = Color.Gray, fontSize = 10.sp)
+            Column { // Use a Column to stack media and text
+                // NEW: Display media if present
+                if (message.mediaUrl != null && message.messageType != "text") {
+                    AsyncImage(
+                        model = message.mediaUrl,
+                        contentDescription = "${message.messageType} attachment",
+                        modifier = Modifier
+                            .size(200.dp)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+
+                // Only show text content if it exists
+                if (!message.text.isNullOrBlank()) {
+                    Row(verticalAlignment = Alignment.Bottom) {
+                        Text(text = message.text, color = Color.Black, fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = message.timestamp, color = Color.Gray, fontSize = 10.sp)
+                    }
+                } else if (message.mediaUrl != null && message.messageType != "text") {
+                    // For media-only messages, just show the timestamp
+                    Text(text = message.timestamp, color = Color.Gray, fontSize = 10.sp, modifier = Modifier.align(Alignment.End))
+                }
             }
         }
     }
@@ -259,8 +315,9 @@ fun ChatTopBar(
     )
 }
 
+// UPDATED: Added onPlusClick parameter
 @Composable
-fun ChatInputBar(onSendMessage: (String) -> Unit) {
+fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
     var text by remember { mutableStateOf("") }
 
     Surface(shadowElevation = 8.dp) {
@@ -270,7 +327,8 @@ fun ChatInputBar(onSendMessage: (String) -> Unit) {
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = { /* TODO: Plus action */ }) {
+            // Mapped '+' icon to the new action
+            IconButton(onClick = onPlusClick) {
                 Icon(Icons.Default.Add, contentDescription = "Attach")
             }
             TextField(

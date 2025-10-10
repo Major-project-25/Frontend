@@ -6,7 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.* // Needed for remember, LaunchedEffect, collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import androidx.compose.ui.res.painterResource
+import java.util.UUID // Needed for adminId type
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,6 +26,8 @@ fun AdminGeneralInterfaceScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
+
+    // FIX: Correctly collect the adminId flow state inside the Composable function body
     val adminId by sessionManager.getUserIdFlow.collectAsState(initial = null)
 
     val uiState = adminViewModel.uiState
@@ -52,14 +55,8 @@ fun AdminGeneralInterfaceScreen(
             CenterAlignedTopAppBar(
                 title = { Text("General Info", fontWeight = FontWeight.Bold) }
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { /* TODO: Show post creation dialog */ }) {
-                Icon(painterResource(id = R.drawable.ic_upload), contentDescription = "Upload Post")
-            }
         }
     ) { innerPadding ->
-        // We will add the list of existing posts here later
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -90,9 +87,9 @@ fun AdminGeneralInterfaceScreen(
                     Text("Select Image/Video")
                 }
                 // Show a preview of the selected image
-                adminViewModel.selectedFileUri?.let {
+                adminViewModel.selectedFileUri?.let { uri ->
                     AsyncImage(
-                        model = it,
+                        model = uri,
                         contentDescription = "Selected media",
                         modifier = Modifier.size(80.dp)
                     )
@@ -104,6 +101,7 @@ fun AdminGeneralInterfaceScreen(
             // Upload button
             Button(
                 onClick = {
+                    // FIX: Use the collected 'adminId' state directly
                     adminId?.let {
                         adminViewModel.createPost(it, context)
                     }
@@ -111,7 +109,8 @@ fun AdminGeneralInterfaceScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(50.dp),
-                enabled = uiState !is AdminUiState.Uploading // Disable button while uploading
+                // Only enable if we have a valid admin ID and are not already uploading
+                enabled = uiState !is AdminUiState.Uploading && adminId != null
             ) {
                 if (uiState is AdminUiState.Uploading) {
                     CircularProgressIndicator(

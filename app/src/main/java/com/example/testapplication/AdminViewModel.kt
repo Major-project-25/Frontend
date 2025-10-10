@@ -2,10 +2,9 @@ package com.example.testapplication
 
 import android.content.Context
 import android.net.Uri
-import android.provider.OpenableColumns
-import android.util.Log
+import android.util.Log // <-- FIX: Missing Log import
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateOf // <-- FIX: Missing mutableStateOf import
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -16,8 +15,7 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.io.File
-import java.io.FileOutputStream
-import java.util.UUID
+import java.util.UUID // <-- FIX: Missing UUID import
 
 sealed interface AdminUiState {
     object Idle : AdminUiState
@@ -39,7 +37,7 @@ class AdminViewModel : ViewModel() {
 
         var filePart: MultipartBody.Part? = null
         selectedFileUri?.let { uri ->
-            // Pass the context to the helper function
+            // Use the globally available file helper function from FileUtility.kt
             val file = context.contentResolver.getFile(context, uri)
             val requestFile = file.asRequestBody(context.contentResolver.getType(uri)?.toMediaTypeOrNull())
             filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
@@ -66,28 +64,4 @@ class AdminViewModel : ViewModel() {
     fun resetState() {
         uiState = AdminUiState.Idle
     }
-}
-
-// Helper function updated to accept a Context
-private fun android.content.ContentResolver.getFile(context: Context, uri: Uri): File {
-    val file = File(context.cacheDir, this.getFileName(uri))
-    this.openInputStream(uri).use { inputStream ->
-        FileOutputStream(file).use { outputStream ->
-            inputStream?.copyTo(outputStream)
-        }
-    }
-    return file
-}
-
-private fun android.content.ContentResolver.getFileName(uri: Uri): String {
-    var name = ""
-    val cursor = this.query(uri, null, null, null, null)
-    cursor?.use {
-        it.moveToFirst()
-        val nameIndex = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (nameIndex != -1) {
-            name = it.getString(nameIndex)
-        }
-    }
-    return name
 }

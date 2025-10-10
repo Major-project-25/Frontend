@@ -1,6 +1,7 @@
 package com.example.testapplication
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -10,10 +11,14 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
-import java.time.LocalTime // <-- Explicitly imported the original time class
+import java.io.File
+import java.time.LocalTime
 import java.util.UUID
 
 data class ChatUiState(
@@ -22,17 +27,17 @@ data class ChatUiState(
     val error: String? = null
 )
 
-// Changed to AndroidViewModel to access the application context
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val userRepository = UserRepository(RetrofitInstance.api)
-    // Pass the context to the WebSocket service
     private val ktorWebSocketService = KtorWebSocketService(application.applicationContext)
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState = _uiState.asStateFlow()
 
+    private val appContext = application.applicationContext
+
     fun loadChat(currentUserId: UUID, friendId: UUID) {
-        // Fix 1: Listener is correctly set up here (fixes receiver's real-time issue)
+        // --- Setup WebSocket Listener ---
         ktorWebSocketService.messages
             .onEach { messageResponse ->
                 val uiMessage = messageResponse.toUiMessage(currentUserId)
@@ -66,19 +71,73 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         })
     }
 
+    // --- NEW FUNCTION: Handles the entire file upload and send process ---
+    fun sendMediaMessage(currentUserId: UUID, receiverId: UUID, fileUri: Uri, mimeType: String, messageType: String) {
+        val file: File = appContext.contentResolver.getFile(appContext, fileUri)
+        val requestFile = file.asRequestBody(mimeType.toMediaTypeOrNull())
+        val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
+
+        userRepository.uploadMediaFile(filePart).enqueue(object : Callback<MediaUploadResponse> {
+            override fun onResponse(call: Call<MediaUploadResponse>, response: Response<MediaUploadResponse>) {
+                val mediaUrl = response.body()?.mediaUrl
+                if (response.isSuccessful && mediaUrl != null) {
+
+                    viewModelScope.launch {
+                        val messageToSend = MessageCreate(
+                            receiverId = receiverId,
+                            content = null,
+                            mediaUrl = mediaUrl,
+                            messageType = messageType
+                        )
+                        ktorWebSocketService.sendMessage(messageToSend)
+                    }
+
+                    // Optimistically update the UI locally
+                    // FIX: Access BASE_URL directly from RetrofitInstance
+                    val fullMediaUrl = RetrofitInstance.BASE_URL.dropLast(1) + mediaUrl
+                    val optimisticUiMessage = Message(
+                        text = null,
+                        author = MessageAuthor.ME,
+                        authorId = currentUserId,
+                        timestamp = LocalTime.now().toString().substring(0, 5),
+                        mediaUrl = fullMediaUrl,
+                        messageType = messageType
+                    )
+                    _uiState.update { currentState ->
+                        currentState.copy(messages = currentState.messages + optimisticUiMessage)
+                    }
+                } else {
+                    Log.e("ChatViewModel", "Media upload failed: ${response.code()}")
+                }
+            }
+
+            override fun onFailure(call: Call<MediaUploadResponse>, t: Throwable) {
+                Log.e("ChatViewModel", "Media upload network error: ${t.message}")
+            }
+        })
+    }
+    // --- END NEW FUNCTION ---
+
     fun sendMessage(receiverId: UUID, content: String, currentUserId: UUID) {
         // Send the message via WebSocket
         viewModelScope.launch {
-            val messageToSend = MessageCreate(receiverId = receiverId, content = content)
+            val messageToSend = MessageCreate(
+                receiverId = receiverId,
+                content = content,
+                mediaUrl = null,
+                messageType = "text"
+            )
             ktorWebSocketService.sendMessage(messageToSend)
         }
 
-        // Fix 2: Reverting to the original, reliable string manipulation for the timestamp
+        // Optimistically update the UI
         val optimisticUiMessage = Message(
             text = content,
             author = MessageAuthor.ME,
             authorId = currentUserId,
-            timestamp = LocalTime.now().toString().substring(0, 5) // <-- Working logic
+            timestamp = LocalTime.now().toString().substring(0, 5),
+            mediaUrl = null,
+            messageType = "text"
         )
         _uiState.update { currentState ->
             currentState.copy(messages = currentState.messages + optimisticUiMessage)
@@ -95,10 +154,21 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
 private fun MessageResponse.toUiMessage(currentUserId: UUID): Message {
     val author = if (this.senderId == currentUserId) MessageAuthor.ME else MessageAuthor.THEM
+
+    val contentText = this.content
+    val mediaFullPath = if (this.mediaUrl != null) {
+        // FIX: Access BASE_URL directly from RetrofitInstance
+        RetrofitInstance.BASE_URL.dropLast(1) + this.mediaUrl
+    } else {
+        null
+    }
+
     return Message(
-        text = this.content,
+        text = contentText,
         author = author,
         authorId = this.senderId,
-        timestamp = this.timestamp.substring(11, 16)
+        timestamp = this.timestamp.substring(11, 16),
+        mediaUrl = mediaFullPath,
+        messageType = this.messageType
     )
 }

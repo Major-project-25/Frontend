@@ -1,4 +1,3 @@
-// In ApiService.kt
 package com.example.testapplication
 
 import okhttp3.MultipartBody
@@ -43,15 +42,9 @@ interface ApiService {
         @Body addressee: ConnectionRequest
     ): Call<StatusResponse>
 
-    // In ApiService.kt
-
-// ... (keep all existing functions)
-
-    // ADD THIS FUNCTION
     @GET("api/v2/connections/{user_id}/requests/pending")
     fun getPendingRequests(@Path("user_id") userId: UUID): Call<List<PendingRequestDetail>>
 
-    // ADD THIS FUNCTION
     @PUT("api/v2/connections/{user_id}/requests/respond")
     fun respondToRequest(
         @Path("user_id") userId: UUID,
@@ -61,10 +54,11 @@ interface ApiService {
     @GET("api/v2/connections/{user_id}/friends")
     fun getFriends(@Path("user_id") userId: UUID): Call<FriendsResponse>
 
+    // --- Version 3 Endpoints (Messaging) ---
     @POST("api/v3/messages/{sender_id}/send")
     fun sendMessage(
         @Path("sender_id") senderId: UUID,
-        @Body message: MessageCreate
+        @Body message: MessageCreate // Uses UPDATED MessageCreate
     ): Call<MessageResponse>
 
     @GET("api/v3/messages/{user_id}/conversation/{other_user_id}")
@@ -73,9 +67,23 @@ interface ApiService {
         @Path("other_user_id") otherUserId: UUID
     ): Call<List<MessageResponse>>
 
+    @GET("api/v3/messages/{user_id}/meet/{other_user_id}")
+    fun getVideoCallLink(
+        @Path("user_id") userId: UUID,
+        @Path("other_user_id") otherUserId: UUID
+    ): Call<MeetLinkResponse>
+
+    // NEW ENDPOINT for media upload
+    @Multipart
+    @POST("api/v3/messages/upload-media")
+    fun uploadMediaFile(
+        @Part file: MultipartBody.Part
+    ): Call<MediaUploadResponse>
+
     @GET("api/v1/users/{user_id}/Fullprofile")
     fun getUserFullProfile(@Path("user_id") userId: UUID): Call<GetFullProfile>
 
+    // --- Version 4 Endpoints (Admin/Posts) ---
     @Multipart
     @POST("api/v4/admin/{admin_id}/posts")
     fun createPost(
@@ -86,10 +94,4 @@ interface ApiService {
 
     @GET("api/v4/posts/")
     fun getAllPosts(): Call<List<PostResponse>>
-
-    @GET("api/v3/messages/{user_id}/meet/{other_user_id}")
-    fun getVideoCallLink(
-        @Path("user_id") userId: UUID,
-        @Path("other_user_id") otherUserId: UUID
-    ): Call<MeetLinkResponse>
 }
