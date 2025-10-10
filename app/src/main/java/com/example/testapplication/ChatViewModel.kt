@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.time.LocalTime // <-- Explicitly imported the original time class
 import java.util.UUID
 
 data class ChatUiState(
@@ -30,19 +31,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState = _uiState.asStateFlow()
 
-    init {
-        // Listen for incoming messages from the WebSocket
+    fun loadChat(currentUserId: UUID, friendId: UUID) {
+        // Fix 1: Listener is correctly set up here (fixes receiver's real-time issue)
         ktorWebSocketService.messages
             .onEach { messageResponse ->
-                val uiMessage = messageResponse.toUiMessage(_uiState.value.messages.firstOrNull()?.authorId ?: UUID.randomUUID())
+                val uiMessage = messageResponse.toUiMessage(currentUserId)
                 _uiState.update { currentState ->
                     currentState.copy(messages = currentState.messages + uiMessage)
                 }
             }
             .launchIn(viewModelScope)
-    }
 
-    fun loadChat(currentUserId: UUID, friendId: UUID) {
+
         // Launch a coroutine to handle the suspendable connect function
         viewModelScope.launch {
             ktorWebSocketService.connect(currentUserId)
@@ -73,12 +73,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             ktorWebSocketService.sendMessage(messageToSend)
         }
 
-        // Optimistically update the UI
+        // Fix 2: Reverting to the original, reliable string manipulation for the timestamp
         val optimisticUiMessage = Message(
             text = content,
             author = MessageAuthor.ME,
             authorId = currentUserId,
-            timestamp = java.time.LocalTime.now().toString().substring(0, 5)
+            timestamp = LocalTime.now().toString().substring(0, 5) // <-- Working logic
         )
         _uiState.update { currentState ->
             currentState.copy(messages = currentState.messages + optimisticUiMessage)

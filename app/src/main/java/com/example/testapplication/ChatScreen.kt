@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import androidx.compose.runtime.snapshotFlow // <-- CRITICAL NEW IMPORT
 import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
@@ -49,11 +50,52 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
 
+    // --- NEW STATE: Unread Message Count ---
+    var unreadCount by remember { mutableIntStateOf(0) }
+    val lastKnownMessageCount = remember { mutableIntStateOf(0) }
+    // --- END NEW STATE ---
+
     LaunchedEffect(userId, friendId) {
         userId?.let {
             chatViewModel.loadChat(it, friendId)
         }
     }
+
+    // --- LOGIC 1: Initial Load Scroll & New Message Detection (FOR INDICATOR) ---
+    LaunchedEffect(uiState.messages.size) {
+        if (uiState.messages.size > lastKnownMessageCount.intValue) {
+            // A new message has arrived (WebSocket or optimistic send)
+            val isAtBottom = listState.firstVisibleItemIndex == 0
+
+            if (lastKnownMessageCount.intValue == 0) {
+                // Case A: Initial message load (history fetch). Always scroll to bottom.
+                coroutineScope.launch { listState.scrollToItem(0) }
+                unreadCount = 0
+            } else if (isAtBottom) {
+                // Case B: New message arrived, and user is already at the bottom.
+                coroutineScope.launch { listState.animateScrollToItem(0) }
+                unreadCount = 0
+            } else {
+                // Case C: New message arrived, and user is scrolled up.
+                unreadCount++
+            }
+        }
+        lastKnownMessageCount.intValue = uiState.messages.size
+    }
+
+    // --- LOGIC 2: Reset unread count when the user scrolls to the bottom ---
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .collect { firstVisibleIndex ->
+                // The indicator vanishes immediately when the user scrolls to the newest message (index 0).
+                if (firstVisibleIndex == 0) {
+                    if (unreadCount > 0) {
+                        unreadCount = 0
+                    }
+                }
+            }
+    }
+    // --- END NEW LOGIC ---
 
     Scaffold(
         topBar = {
@@ -82,6 +124,8 @@ fun ChatScreen(
             ChatInputBar(onSendMessage = { messageContent ->
                 userId?.let {
                     chatViewModel.sendMessage(friendId, messageContent, it)
+                    // Reset count when sender sends a message
+                    unreadCount = 0
                 }
             })
         }
@@ -110,18 +154,44 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp),
                     reverseLayout = true
                 ) {
+                    // This is your original, working item structure
                     items(uiState.messages.reversed()) { message ->
                         MessageBubble(message = message)
                     }
                 }
-                LaunchedEffect(uiState.messages.size) {
-                    if (uiState.messages.isNotEmpty()) {
+                // NOTE: The original LaunchedEffect for autoscroll has been superseded
+                // by the logic in LOGIC 1 above, which handles initial scroll.
+            }
+
+            // --- UI: Floating Button/Badge for Manual Scroll ---
+            if (unreadCount > 0) {
+                FloatingActionButton(
+                    onClick = {
                         coroutineScope.launch {
+                            // Manual scroll to the newest message (index 0)
                             listState.animateScrollToItem(0)
+                            unreadCount = 0
                         }
-                    }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        // Position the button above the input bar and inside the padding
+                        .padding(
+                            end = 16.dp,
+                            bottom = innerPadding.calculateBottomPadding() + 8.dp
+                        )
+                        .size(56.dp),
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text(
+                        text = unreadCount.toString(),
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp
+                    )
                 }
             }
+            // --- END NEW UI ---
         }
     }
 }
