@@ -146,9 +146,24 @@ fun StudentNavigation(navController: NavHostController, startDestination: String
                     )
                 }
             }
+            // UPDATED: Passed navController to GeneralInterfaceScreen
+            composable("general_interface") { GeneralInterfaceScreen(navController = navController) }
+
+            // NEW ROUTE: For viewing the full post by ID (UUID)
+            composable(
+                route = "post_detail/{postId}",
+                arguments = listOf(navArgument("postId") {
+                    type = NavType.StringType // UUID is passed as a String
+                })
+            ) { backStackEntry ->
+                val postIdString = backStackEntry.arguments?.getString("postId")
+                if (postIdString != null) {
+                    PostDetailScreen(navController = navController, postId = UUID.fromString(postIdString))
+                }
+            }
+
             composable("home") { HomeScreen(navController = navController) }
             composable("network") { NetworkScreen() }
-            composable("general_interface") { GeneralInterfaceScreen() }
             composable("profile") { ProfileScreen(navController = navController) }
             composable("edit_profile") { EditProfileScreen(navController = navController) }
             composable("requests") { RequestsScreen(navController = navController) }
