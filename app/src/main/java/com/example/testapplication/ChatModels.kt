@@ -10,7 +10,7 @@ enum class MessageAuthor {
 // Represents a single chat message
 data class Message(
     val id: UUID = UUID.randomUUID(),
-    val text: String?, // CHANGED: Made nullable for media-only messages
+    val text: String?, // CHANGED: Must be nullable to support media-only messages
     val author: MessageAuthor,
     val authorId: UUID,
     val timestamp: String, // e.g., "10:10"
