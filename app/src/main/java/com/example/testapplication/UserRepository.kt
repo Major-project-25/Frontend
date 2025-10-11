@@ -58,11 +58,12 @@ class UserRepository(private val apiService: ApiService) {
         return apiService.uploadMediaFile(filePart)
     }
 
-    fun getAllPosts(): Call<List<PostResponse>> {
-        return apiService.getAllPosts()
+    fun getAllPosts(userId: UUID): Call<List<PostResponse>> {
+        return apiService.getAllPosts(userId)
     }
 
     fun getVideoCallLink(userId: UUID, otherUserId: UUID): Call<MeetLinkResponse> {
         return apiService.getVideoCallLink(userId, otherUserId)
     }
+
 }

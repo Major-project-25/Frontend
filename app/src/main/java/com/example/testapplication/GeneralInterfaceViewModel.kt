@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
+import java.util.UUID // <-- ADDED THIS IMPORT STATEMENT
 
 // UI State for the General Interface Screen
 sealed interface GeneralUiState {
@@ -23,14 +24,11 @@ class GeneralInterfaceViewModel : ViewModel() {
     var uiState: GeneralUiState by mutableStateOf(GeneralUiState.Loading)
         private set
 
-    init {
-        // Fetch posts as soon as the ViewModel is created
-        fetchPosts()
-    }
+    // We removed the init block, relying on the screen to call this function
 
-    fun fetchPosts() {
+    fun fetchPosts(userId: UUID) {
         uiState = GeneralUiState.Loading
-        userRepository.getAllPosts().enqueue(object : Callback<List<PostResponse>> {
+        userRepository.getAllPosts(userId).enqueue(object : Callback<List<PostResponse>> {
             override fun onResponse(call: Call<List<PostResponse>>, response: Response<List<PostResponse>>) {
                 if (response.isSuccessful) {
                     val posts = response.body()

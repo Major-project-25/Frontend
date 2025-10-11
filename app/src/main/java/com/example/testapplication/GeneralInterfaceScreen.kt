@@ -24,12 +24,31 @@ import java.time.format.FormatStyle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeneralInterfaceScreen(
     generalViewModel: GeneralInterfaceViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
+    // Fetch the current user's ID
+    val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
+
+    // Trigger the post fetch whenever the userId becomes available or changes
+    LaunchedEffect(userId) {
+        userId?.let {
+            // CALLING THE UPDATED VIEWMODEL FUNCTION WITH userId
+            generalViewModel.fetchPosts(it)
+        }
+    }
+
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
@@ -63,6 +82,7 @@ fun GeneralInterfaceScreen(
                     Text("No posts yet. Check back later!", textAlign = TextAlign.Center)
                 }
                 is GeneralUiState.Error -> {
+                    // This is the error text seen in your screenshot
                     Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
                 }
             }
@@ -86,7 +106,9 @@ fun PostCard(post: PostResponse) {
         Column {
             if (post.media_url != null) {
                 AsyncImage(
-                    model = "http://172.17.2.88:8000${post.media_url}", // IMPORTANT: Use your server IP
+                    // Assuming the IP is set correctly in RetrofitInstance,
+                    // this URL construction is fine, provided your server IP is still 172.17.2.88
+                    model = "http://172.17.2.88:8000${post.media_url}",
                     contentDescription = post.content,
                     modifier = Modifier
                         .fillMaxWidth()

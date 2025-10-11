@@ -92,6 +92,8 @@ interface ApiService {
         @Part file: MultipartBody.Part?
     ): Call<PostResponse>
 
-    @GET("api/v4/posts/")
-    fun getAllPosts(): Call<List<PostResponse>>
+    @GET("api/v4/posts/{user_id}")
+    fun getAllPosts(@Path("user_id") userId: UUID): Call<List<PostResponse>>
+
+
 }
