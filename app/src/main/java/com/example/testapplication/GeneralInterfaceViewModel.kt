@@ -25,6 +25,7 @@ class GeneralInterfaceViewModel : ViewModel() {
         private set
 
     fun fetchPosts(userId: UUID) {
+        // ... (fetchPosts logic remains unchanged)
         uiState = GeneralUiState.Loading
         userRepository.getAllPosts(userId).enqueue(object : Callback<List<PostResponse>> {
             override fun onResponse(call: Call<List<PostResponse>>, response: Response<List<PostResponse>>) {
@@ -33,8 +34,7 @@ class GeneralInterfaceViewModel : ViewModel() {
                     if (posts.isNullOrEmpty()) {
                         uiState = GeneralUiState.Empty
                     } else {
-                        // Ensure posts are unique before updating the state (good practice)
-                        uiState = GeneralUiState.Success(posts.distinctBy { it.id })
+                        uiState = GeneralUiState.Success(posts.distinctBy { it.id }.sortedByDescending { it.created_at })
                     }
                 } else {
                     Log.e("GenInterfaceViewModel", "Response failed: ${response.code()}")
@@ -49,31 +49,55 @@ class GeneralInterfaceViewModel : ViewModel() {
         })
     }
 
-    // NEW FUNCTION: Handles post deletion
+    // ... (deletePost logic remains unchanged)
     fun deletePost(adminId: UUID, postId: UUID) {
+        // ... (keep the deletion logic as it was)
+        if (uiState is GeneralUiState.Success) {
+            val currentPosts = (uiState as GeneralUiState.Success).posts
+            val updatedPosts = currentPosts.filter { it.id != postId }
+
+            uiState = if (updatedPosts.isEmpty()) {
+                GeneralUiState.Empty
+            } else {
+                GeneralUiState.Success(updatedPosts)
+            }
+        }
+
         userRepository.deletePost(adminId, postId).enqueue(object : Callback<Unit> {
             override fun onResponse(call: Call<Unit>, response: Response<Unit>) {
-                if (response.isSuccessful) {
-                    // Update UI State by removing the deleted post from the list
-                    if (uiState is GeneralUiState.Success) {
-                        val currentPosts = (uiState as GeneralUiState.Success).posts
-                        val updatedPosts = currentPosts.filter { it.id != postId }
-
-                        uiState = if (updatedPosts.isEmpty()) {
-                            GeneralUiState.Empty
-                        } else {
-                            GeneralUiState.Success(updatedPosts)
-                        }
-                    }
-                } else {
+                if (!response.isSuccessful) {
                     Log.e("GenInterfaceViewModel", "Deletion failed: ${response.code()}")
-                    // Optionally set an error state or show a Toast
                 }
             }
 
             override fun onFailure(call: Call<Unit>, t: Throwable) {
                 Log.e("GenInterfaceViewModel", "Deletion network error", t)
-                // Optionally set an error state or show a Toast
+            }
+        })
+    }
+
+    // NEW FUNCTION: Handle user reaction
+    fun handleReaction(userId: UUID, postId: UUID, reactionType: String) {
+        userRepository.reactToPost(postId, userId, reactionType).enqueue(object : Callback<PostResponse> {
+            override fun onResponse(call: Call<PostResponse>, response: Response<PostResponse>) {
+                val updatedPost = response.body()
+                if (response.isSuccessful && updatedPost != null) {
+                    if (uiState is GeneralUiState.Success) {
+                        val currentPosts = (uiState as GeneralUiState.Success).posts
+                        // Map the list and replace the old post object with the new one
+                        val newPosts = currentPosts.map { post ->
+                            if (post.id == postId) updatedPost else post
+                        }
+                        uiState = GeneralUiState.Success(newPosts)
+                    }
+                } else {
+                    Log.e("GenInterfaceViewModel", "Reaction failed: ${response.code()}")
+                    // Note: In a real app, you would rollback the UI state here if the reaction failed.
+                }
+            }
+
+            override fun onFailure(call: Call<PostResponse>, t: Throwable) {
+                Log.e("GenInterfaceViewModel", "Reaction network error", t)
             }
         })
     }

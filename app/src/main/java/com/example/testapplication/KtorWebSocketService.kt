@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.*
 
+// NEW: Shared Flow for immediate warnings/errors that don't belong in the chat history
+data class ChatWarning(val message: String)
+
 // NEW: Enum to clearly represent the WebSocket's connection state.
 enum class ConnectionStatus {
     DISCONNECTED, CONNECTING, CONNECTED, FAILED
@@ -31,12 +34,15 @@ class KtorWebSocketService(private val context: Context) {
     private val _messages = MutableSharedFlow<MessageResponse>()
     val messages = _messages.asSharedFlow()
 
-    // NEW: A StateFlow to hold and expose the current connection status to the app.
+    // NEW FLOW: To emit moderation warnings back to the sender
+    private val _warnings = MutableSharedFlow<ChatWarning>()
+    val warnings = _warnings.asSharedFlow()
+
+    // A StateFlow to hold and expose the current connection status to the app.
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus = _connectionStatus.asStateFlow()
 
     suspend fun connect(userId: UUID) {
-        // Prevent trying to connect if a connection is already active or in progress.
         if (_connectionStatus.value == ConnectionStatus.CONNECTED || _connectionStatus.value == ConnectionStatus.CONNECTING) {
             return
         }
@@ -52,7 +58,6 @@ class KtorWebSocketService(private val context: Context) {
                 _connectionStatus.value = ConnectionStatus.CONNECTED
                 println("Ktor WebSocket Connected!")
 
-                // This loop listens for incoming messages for the duration of the connection.
                 for (frame in incoming) {
                     if (frame is Frame.Text) {
                         val text = frame.readText()
@@ -65,6 +70,11 @@ class KtorWebSocketService(private val context: Context) {
                                 val meetLink = jsonObject["meet_link"] as String
                                 NotificationService.showVideoCallNotification(context, callerName, meetLink)
                             }
+                            // NEW CASE: Handle moderation warnings
+                            "moderation_warning" -> {
+                                val warningMessage = jsonObject["message"] as String
+                                _warnings.tryEmit(ChatWarning(warningMessage))
+                            }
                             else -> {
                                 val message = gson.fromJson(text, MessageResponse::class.java)
                                 _messages.tryEmit(message)
@@ -74,14 +84,11 @@ class KtorWebSocketService(private val context: Context) {
                 }
             }
         } catch (e: Exception) {
-            // If any error occurs (e.g., network issue, server down), update the status.
             println("Ktor WebSocket Error: ${e.localizedMessage}")
             _connectionStatus.value = ConnectionStatus.FAILED
         } finally {
-            // This block runs when the connection is closed for any reason.
             println("Ktor WebSocket Disconnected.")
             session = null
-            // Only set to DISCONNECTED if it wasn't a FAILED state.
             if (_connectionStatus.value != ConnectionStatus.FAILED) {
                 _connectionStatus.value = ConnectionStatus.DISCONNECTED
             }

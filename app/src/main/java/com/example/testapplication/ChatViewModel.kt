@@ -24,7 +24,8 @@ import java.util.UUID
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val isLoading: Boolean = true,
-    val error: String? = null
+    val error: String? = null,
+    val moderationWarning: String? = null
 )
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -36,19 +37,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appContext = application.applicationContext
 
+    // Store the chat metadata needed for reloading
+    private var currentChatFriendId: UUID? = null
+    private var currentChatUserId: UUID? = null
+
     fun loadChat(currentUserId: UUID, friendId: UUID) {
-        // --- Setup WebSocket Listener ---
+        // Store IDs for the reload mechanism
+        currentChatUserId = currentUserId
+        currentChatFriendId = friendId
+
+        // --- Setup WebSocket Listener (Keep for future improvement and moderation warnings) ---
         ktorWebSocketService.messages
             .onEach { messageResponse ->
-                val uiMessage = messageResponse.toUiMessage(currentUserId)
+                // The messages are still being received here, but we now rely on loadChat
+                // for the actual UI update. This part remains useful for *cross-device* updates.
+
+                // If the message is for the current chat, manually trigger a reload
+                if (messageResponse.senderId == currentChatUserId || messageResponse.senderId == currentChatFriendId) {
+                    forceChatReload()
+                }
+            }
+            .launchIn(viewModelScope)
+
+        ktorWebSocketService.warnings
+            .onEach { warning ->
                 _uiState.update { currentState ->
-                    currentState.copy(messages = currentState.messages + uiMessage)
+                    currentState.copy(moderationWarning = warning.message)
                 }
             }
             .launchIn(viewModelScope)
 
 
-        // Launch a coroutine to handle the suspendable connect function
         viewModelScope.launch {
             ktorWebSocketService.connect(currentUserId)
         }
@@ -59,7 +78,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 if (response.isSuccessful) {
                     val messageResponses = response.body() ?: emptyList()
                     val uiMessages = messageResponses.map { it.toUiMessage(currentUserId) }
-                    _uiState.update { it.copy(messages = uiMessages, isLoading = false) }
+                    _uiState.update { it.copy(messages = uiMessages, isLoading = false, moderationWarning = null) }
                 } else {
                     _uiState.update { it.copy(error = "Failed to load history.", isLoading = false) }
                 }
@@ -71,8 +90,37 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         })
     }
 
-    // --- NEW FUNCTION: Handles the entire file upload and send process ---
+    // NEW FUNCTION: Triggers a manual fetch from the API using stored IDs
+    private fun forceChatReload() {
+        val userId = currentChatUserId
+        val friendId = currentChatFriendId
+
+        if (userId != null && friendId != null) {
+            // Set loading state briefly (optional)
+            _uiState.update { it.copy(isLoading = true) }
+
+            userRepository.getConversationHistory(userId, friendId).enqueue(object : Callback<List<MessageResponse>> {
+                override fun onResponse(call: Call<List<MessageResponse>>, response: Response<List<MessageResponse>>) {
+                    if (response.isSuccessful) {
+                        val messageResponses = response.body() ?: emptyList()
+                        val uiMessages = messageResponses.map { it.toUiMessage(userId) }
+                        // Replace the entire message list, forcing a Compose recomposition
+                        _uiState.update { it.copy(messages = uiMessages, isLoading = false) }
+                    } else {
+                        _uiState.update { it.copy(isLoading = false) }
+                    }
+                }
+                override fun onFailure(call: Call<List<MessageResponse>>, t: Throwable) {
+                    _uiState.update { it.copy(isLoading = false) }
+                }
+            })
+        }
+    }
+
+
     fun sendMediaMessage(currentUserId: UUID, receiverId: UUID, fileUri: Uri, mimeType: String, messageType: String) {
+        _uiState.update { it.copy(moderationWarning = null) }
+
         val file: File = appContext.contentResolver.getFile(appContext, fileUri)
         val requestFile = file.asRequestBody(mimeType.toMediaTypeOrNull())
         val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
@@ -90,22 +138,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                             messageType = messageType
                         )
                         ktorWebSocketService.sendMessage(messageToSend)
+                        // Trigger the HTTP reload after sending the WebSocket message
+                        forceChatReload() // <-- NEW: Force reload for sender
                     }
 
-                    // Optimistically update the UI locally
-                    // FIX: Access BASE_URL directly from RetrofitInstance
-                    val fullMediaUrl = RetrofitInstance.BASE_URL.dropLast(1) + mediaUrl
-                    val optimisticUiMessage = Message(
-                        text = null,
-                        author = MessageAuthor.ME,
-                        authorId = currentUserId,
-                        timestamp = LocalTime.now().toString().substring(0, 5),
-                        mediaUrl = fullMediaUrl,
-                        messageType = messageType
-                    )
-                    _uiState.update { currentState ->
-                        currentState.copy(messages = currentState.messages + optimisticUiMessage)
-                    }
                 } else {
                     Log.e("ChatViewModel", "Media upload failed: ${response.code()}")
                 }
@@ -116,9 +152,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
         })
     }
-    // --- END NEW FUNCTION ---
 
     fun sendMessage(receiverId: UUID, content: String, currentUserId: UUID) {
+        _uiState.update { it.copy(moderationWarning = null) }
+
         // Send the message via WebSocket
         viewModelScope.launch {
             val messageToSend = MessageCreate(
@@ -128,19 +165,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 messageType = "text"
             )
             ktorWebSocketService.sendMessage(messageToSend)
-        }
-
-        // Optimistically update the UI
-        val optimisticUiMessage = Message(
-            text = content,
-            author = MessageAuthor.ME,
-            authorId = currentUserId,
-            timestamp = LocalTime.now().toString().substring(0, 5),
-            mediaUrl = null,
-            messageType = "text"
-        )
-        _uiState.update { currentState ->
-            currentState.copy(messages = currentState.messages + optimisticUiMessage)
+            // Trigger the HTTP reload immediately after sending the WebSocket message
+            forceChatReload() // <-- NEW: Force reload for sender
         }
     }
 
@@ -157,7 +183,6 @@ private fun MessageResponse.toUiMessage(currentUserId: UUID): Message {
 
     val contentText = this.content
     val mediaFullPath = if (this.mediaUrl != null) {
-        // FIX: Access BASE_URL directly from RetrofitInstance
         RetrofitInstance.BASE_URL.dropLast(1) + this.mediaUrl
     } else {
         null

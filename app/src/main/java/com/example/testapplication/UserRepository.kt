@@ -70,4 +70,9 @@ class UserRepository(private val apiService: ApiService) {
         return apiService.getVideoCallLink(userId, otherUserId)
     }
 
+    fun reactToPost(postId: UUID, userId: UUID, reactionType: String): Call<PostResponse> {
+        val reaction = ReactionCreate(reactionType = reactionType)
+        return apiService.reactToPost(postId, userId, reaction)
+    }
+
 }

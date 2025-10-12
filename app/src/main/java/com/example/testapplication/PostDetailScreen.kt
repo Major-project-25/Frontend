@@ -106,7 +106,8 @@ fun PostContent(post: PostResponse) {
             )
         }
 
-        // Placeholder for full Interaction buttons (if needed)
+        // REMOVED: Placeholder for full Interaction buttons (Like/Dislike buttons)
+        /*
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -114,9 +115,10 @@ fun PostContent(post: PostResponse) {
             horizontalArrangement = Arrangement.SpaceAround
         ) {
             // Note: Use a dedicated ViewModel function here for reacting
-            Button(onClick = { /* TODO: Implement Like */ }) { Text("Like") }
-            Button(onClick = { /* TODO: Implement Dislike */ }) { Text("Dislike") }
+            Button(onClick = { // TODO: Implement Like }) { Text("Like") }
+            Button(onClick = { // TODO: Implement Dislike }) { Text("Dislike") }
         }
+        */
     }
 }
 
@@ -135,13 +137,6 @@ fun PostHeader(post: PostResponse) {
         color = MaterialTheme.colorScheme.onSurfaceVariant
     )
     Spacer(modifier = Modifier.height(8.dp))
-    // REMOVED: The line to display the Post ID:
-    /*
-    Text(
-        text = "Post ID: ${post.id}",
-        style = MaterialTheme.typography.labelSmall
-    )
-    */
 }
 
 @Composable

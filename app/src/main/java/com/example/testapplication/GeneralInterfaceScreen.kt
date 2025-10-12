@@ -24,6 +24,8 @@ import java.time.format.FormatStyle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,7 +36,6 @@ import androidx.navigation.NavController
 import java.util.UUID
 import androidx.compose.material.icons.filled.Delete
 
-// The @OptIn annotation is no longer needed here as Scaffold and TopAppBar were removed
 @Composable
 fun GeneralInterfaceScreen(
     navController: NavController,
@@ -43,22 +44,17 @@ fun GeneralInterfaceScreen(
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
 
-    // 1. Fetch the current user's ID and Admin status
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
     val isAdmin by sessionManager.isAdminFlow.collectAsState(initial = false)
 
-    // 2. Trigger the post fetch whenever the userId becomes available or changes
     LaunchedEffect(userId) {
         userId?.let {
             generalViewModel.fetchPosts(it)
         }
     }
 
-    // REMOVED: Scaffold and TopBar to avoid double titles when hosted by AdminHostScreen
-
     Box(
-        modifier = Modifier
-            .fillMaxSize(),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         when (val state = generalViewModel.uiState) {
@@ -75,17 +71,19 @@ fun GeneralInterfaceScreen(
                     items(state.posts) { post ->
                         PostCard(
                             post = post,
-                            // Pass the admin status and current user ID for deletion logic
                             isAdmin = isAdmin,
                             currentUserId = userId,
                             onClick = {
-                                // Navigate using only the Post ID (UUID)
                                 navController.navigate("post_detail/${post.id}")
                             },
                             onDeletePost = { postId ->
-                                // Trigger deletion using the current user ID as the Admin ID
                                 userId?.let { adminId ->
                                     generalViewModel.deletePost(adminId, postId)
+                                }
+                            },
+                            onReact = { postId, reactionType ->
+                                userId?.let { id ->
+                                    generalViewModel.handleReaction(id, postId, reactionType)
                                 }
                             }
                         )
@@ -102,15 +100,22 @@ fun GeneralInterfaceScreen(
     }
 }
 
-// MODIFIED: Added isAdmin, currentUserId, and onDeletePost parameters
+// MODIFIED: PostCard now uses the 'isAdmin' flag to control the visibility of reaction counts.
 @Composable
 fun PostCard(
     post: PostResponse,
     isAdmin: Boolean,
     currentUserId: UUID?,
     onClick: () -> Unit,
-    onDeletePost: (UUID) -> Unit
+    onDeletePost: (UUID) -> Unit,
+    onReact: (postId: UUID, reactionType: String) -> Unit
 ) {
+    val isLiked = post.userReaction == "like"
+    val isDisliked = post.userReaction == "dislike"
+
+    val likeColor = if (isLiked) MaterialTheme.colorScheme.primary else Color.Gray
+    val dislikeColor = if (isDisliked) MaterialTheme.colorScheme.error else Color.Gray
+
     // --- Timestamp Formatting Logic ---
     val odt = OffsetDateTime.parse(post.created_at)
     val istOdt = odt.atZoneSameInstant(ZoneId.of("Asia/Kolkata"))
@@ -118,19 +123,16 @@ fun PostCard(
     val formattedTimestamp = istOdt.format(formatter)
     // --- End of Formatting Logic ---
 
-    // Logic to determine if the delete button should be visible
-    // It must be an Admin AND the post author must match the current user
     val showDeleteButton = isAdmin && currentUserId == post.author_id
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick), // Make the card clickable to view details
+            .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column {
             if (post.media_url != null) {
-                // Use RetrofitInstance.BASE_URL for media
                 AsyncImage(
                     model = RetrofitInstance.BASE_URL.dropLast(1) + post.media_url,
                     contentDescription = post.content,
@@ -162,27 +164,65 @@ fun PostCard(
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween, // Use space between to push delete left
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Delete button, only visible to the Admin who created the post
+                    // Delete button area
                     if (showDeleteButton) {
                         IconButton(onClick = { onDeletePost(post.id) }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete Post")
                         }
                     } else {
-                        // Spacer maintains alignment if the delete button is hidden (for student view)
                         Spacer(modifier = Modifier.width(48.dp))
                     }
 
                     // Like/Dislike buttons (aligned to the right)
-                    Row {
-                        IconButton(onClick = { /* TODO: Handle like action */ }) {
-                            Icon(Icons.Outlined.ThumbUp, contentDescription = "Like")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+
+                        // NEW LOGIC: Only display count if the user is an Admin
+                        if (isAdmin) {
+                            // Display Likes count
+                            Text(text = post.likes.toString(), color = Color.Gray, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(onClick = { /* TODO: Handle dislike action */ }) {
-                            Icon(Icons.Outlined.ThumbDown, contentDescription = "Dislike")
+
+                        // Like Button
+                        IconButton(
+                            onClick = {
+                                val newReaction = if (isLiked) "none" else "like"
+                                onReact(post.id, newReaction)
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
+                                contentDescription = "Like",
+                                tint = likeColor
+                            )
+                        }
+
+                        // NEW LOGIC: Only display count if the user is an Admin
+                        if (isAdmin) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            // Display Dislikes count
+                            Text(text = post.dislikes.toString(), color = Color.Gray, fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                        } else {
+                            // Add a small spacer if counts are hidden to prevent icons from touching
+                            Spacer(modifier = Modifier.width(16.dp))
+                        }
+
+                        // Dislike Button
+                        IconButton(
+                            onClick = {
+                                val newReaction = if (isDisliked) "none" else "dislike"
+                                onReact(post.id, newReaction)
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
+                                contentDescription = "Dislike",
+                                tint = dislikeColor
+                            )
                         }
                     }
                 }

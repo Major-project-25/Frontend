@@ -172,13 +172,23 @@ data class FriendDetail(
     val name: String?
 )
 
+data class ReactionCreate(
+    @SerializedName("reaction_type")
+    val reactionType: String // Can be "like", "dislike", or "none"
+)
+
 data class PostResponse(
     val id: UUID,
     val content: String?,
     val media_url: String?,
     val content_type: String,
     val created_at: String, // Using String for simplicity
-    val author_id: UUID
+    val author_id: UUID,
+    // --- NEW FIELDS FROM BACKEND ---
+    val likes: Int, // Total number of likes
+    val dislikes: Int, // Total number of dislikes
+    @SerializedName("user_reaction")
+    val userReaction: String? // "like", "dislike", or null
 )
 data class MeetLinkResponse(
     @SerializedName("meet_link")
@@ -190,3 +200,5 @@ data class MediaUploadResponse(
     @SerializedName("media_url")
     val mediaUrl: String
 )
+
+

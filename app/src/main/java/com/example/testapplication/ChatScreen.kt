@@ -5,7 +5,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable // REQUIRED
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,10 +22,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset // REQUIRED
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer // REQUIRED
-import androidx.compose.ui.input.pointer.pointerInput // REQUIRED
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
@@ -42,8 +42,8 @@ import retrofit2.Callback
 import retrofit2.Response
 import java.util.UUID
 import coil.compose.AsyncImage
-import java.net.URLEncoder // REQUIRED
-import androidx.compose.foundation.gestures.detectTransformGestures // REQUIRED
+import java.net.URLEncoder
+import androidx.compose.foundation.gestures.detectTransformGestures
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,16 +55,19 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
+    // FIX: Use 'by' delegate for clean access to state and triggers
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
     val uiState by chatViewModel.uiState.collectAsState()
+
+    val messages = uiState.messages // FIX: Direct access to the list from the collected state
+
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // --- Unread Message Count ---
     var unreadCount by remember { mutableIntStateOf(0) }
-    val lastKnownMessageCount = remember { mutableIntStateOf(0) }
-    // --- END NEW STATE ---
 
     // --- File Picker Launcher ---
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -98,25 +101,38 @@ fun ChatScreen(
         }
     }
 
-    // --- LOGIC 1: Scroll & New Message Detection ---
-    LaunchedEffect(uiState.messages.size) {
-        if (uiState.messages.size > lastKnownMessageCount.intValue) {
-            val isAtBottom = listState.firstVisibleItemIndex == 0
-
-            if (lastKnownMessageCount.intValue == 0) {
-                coroutineScope.launch { listState.scrollToItem(0) }
-                unreadCount = 0
-            } else if (isAtBottom) {
-                coroutineScope.launch { listState.animateScrollToItem(0) }
-                unreadCount = 0
-            } else {
-                unreadCount++
+    // --- FIX 1: Display Moderation Warning in a Snackbar ---
+    LaunchedEffect(uiState.moderationWarning) {
+        uiState.moderationWarning?.let { warning ->
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    message = warning,
+                    duration = SnackbarDuration.Long,
+                    actionLabel = "DISMISS"
+                )
             }
         }
-        lastKnownMessageCount.intValue = uiState.messages.size
+    }
+    // --- END FIX 1 ---
+
+    // --- FIX 2: Scroll to bottom immediately when a new message arrives ---
+    // This is the CRITICAL fix for the real-time display issue.
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            // Check if the screen was just launched (size > 0) OR a new message arrived (size increased)
+            // Always scroll to the top (which is the bottom of the chat in reverseLayout)
+            coroutineScope.launch {
+                listState.animateScrollToItem(0)
+            }
+            // Reset unread count if a new message forced a scroll
+            unreadCount = 0
+        }
+        // NOTE: The previous complex logic for tracking lastKnownMessageCount and isAtBottom
+        // is simplified. When a message is sent (by me or friend), we force a scroll.
     }
 
     // --- LOGIC 2: Reset unread count when the user scrolls to the bottom ---
+    // This part remains useful for manual user scrolling.
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { firstVisibleIndex ->
@@ -129,6 +145,7 @@ fun ChatScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             ChatTopBar(
                 navController = navController,
@@ -154,7 +171,7 @@ fun ChatScreen(
                 onSendMessage = { messageContent ->
                     userId?.let {
                         chatViewModel.sendMessage(friendId, messageContent, it)
-                        unreadCount = 0
+                        // Do NOT reset unreadCount here, let the LaunchedEffect(messages.size) handle it
                     }
                 },
                 onPlusClick = {
@@ -173,7 +190,7 @@ fun ChatScreen(
                 CircularProgressIndicator()
             } else if (uiState.error != null) {
                 Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
-            } else if (uiState.messages.isEmpty()) {
+            } else if (messages.isEmpty()) { // Use 'messages' state
                 Text(
                     text = "No messages here yet.\nBe the first to say hi!",
                     textAlign = TextAlign.Center,
@@ -187,12 +204,10 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp),
                     reverseLayout = true
                 ) {
-                    items(uiState.messages.reversed()) { message ->
+                    items(messages.reversed()) { message -> // Use 'messages' state
                         MessageBubble(
                             message = message,
-                            // PASS THE NEW MEDIA CLICK HANDLER
                             onMediaClick = { mediaUrl ->
-                                // URL Encode the media URL to pass it safely through navigation
                                 val encodedUrl = URLEncoder.encode(mediaUrl, "UTF-8")
                                 navController.navigate("media_viewer/$encodedUrl")
                             }
@@ -235,6 +250,7 @@ fun ChatScreen(
 // UPDATED: Added onMediaClick handler
 @Composable
 fun MessageBubble(message: Message, onMediaClick: (String) -> Unit) {
+// ... (MessageBubble code remains unchanged)
     val isMyMessage = message.author == MessageAuthor.ME
     val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0)
     val horizontalArrangement = if (isMyMessage) Arrangement.End else Arrangement.Start

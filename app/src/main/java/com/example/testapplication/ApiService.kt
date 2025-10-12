@@ -102,4 +102,12 @@ interface ApiService {
 
     @GET("api/v4/posts/{user_id}")
     fun getAllPosts(@Path("user_id") userId: UUID): Call<List<PostResponse>>
+
+
+    @POST("api/v4/posts/{post_id}/react/{user_id}")
+    fun reactToPost(
+        @Path("post_id") postId: UUID,
+        @Path("user_id") userId: UUID,
+        @Body reaction: ReactionCreate
+    ): Call<PostResponse>
 }
