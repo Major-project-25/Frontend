@@ -42,8 +42,10 @@ import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.*
-import java.net.URLDecoder // REQUIRED
-
+import java.net.URLDecoder
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.ExitToApp // Added for Logout
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,24 +85,21 @@ fun AppNavigation() {
         else -> "splash"
     }
 
-    if (isLoggedIn && isAdmin) {
-        AdminNavigation(navController = navController, startDestination = startDestination)
-    } else {
-        StudentNavigation(navController = navController, startDestination = startDestination)
-    }
-}
+    // FIX: Simplified the top-level logic to use a single NavHost
+    // We will handle the different UIs (Admin vs Student) inside the Scaffold/NavHost structure below.
 
-@Composable
-fun StudentNavigation(navController: NavHostController, startDestination: String) {
+    // We must define the Student's navigation graph first for the BottomBar check
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
-    val screensWithBottomBar = listOf("home", "network", "general_interface", "profile")
+    val screensWithStudentBottomBar = listOf("home", "network", "general_interface", "profile")
 
+    // The student's bottom bar logic goes here.
     Scaffold(
         bottomBar = {
-            if (currentRoute in screensWithBottomBar) {
+            if (currentRoute in screensWithStudentBottomBar) {
                 BottomNavigationBar(navController = navController)
             }
+            // Admin navigation has its own Scaffold/BottomBar via AdminHostScreen
         }
     ) { innerPadding ->
         NavHost(
@@ -108,6 +107,7 @@ fun StudentNavigation(navController: NavHostController, startDestination: String
             startDestination = startDestination,
             modifier = Modifier.padding(innerPadding)
         ) {
+            // --- Common/Auth Routes ---
             composable("splash") { SplashScreen(navController = navController) }
             composable("welcome") { WelcomeScreen(navController = navController) }
             composable("signin") {
@@ -141,42 +141,18 @@ fun StudentNavigation(navController: NavHostController, startDestination: String
                     ProfileSetupScreen(
                         navController = navController,
                         viewModel = profileSetupViewModel,
-                        sessionManager = SessionManager(LocalContext.current),
+                        sessionManager = sessionManager,
                         userId = userId
                     )
                 }
             }
+            // --- Student Primary Routes ---
             composable("general_interface") { GeneralInterfaceScreen(navController = navController) }
-
-            // Route for Post Details
-            composable(
-                route = "post_detail/{postId}",
-                arguments = listOf(navArgument("postId") {
-                    type = NavType.StringType
-                })
-            ) { backStackEntry ->
-                val postIdString = backStackEntry.arguments?.getString("postId")
-                if (postIdString != null) {
-                    PostDetailScreen(navController = navController, postId = UUID.fromString(postIdString))
-                }
-            }
-
-            // NEW ROUTE: For viewing zoomable media by URL (encoded)
-            composable(
-                route = "media_viewer/{encodedUrl}",
-                arguments = listOf(navArgument("encodedUrl") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val encodedUrl = backStackEntry.arguments?.getString("encodedUrl")
-                if (encodedUrl != null) {
-                    // Decode the URL back to its original format (including slashes)
-                    val fullUrl = URLDecoder.decode(encodedUrl, "UTF-8")
-                    FullScreenMediaViewer(navController = navController, mediaUrl = fullUrl)
-                }
-            }
-
             composable("home") { HomeScreen(navController = navController) }
             composable("network") { NetworkScreen() }
             composable("profile") { ProfileScreen(navController = navController) }
+
+            // --- Secondary/Common Routes ---
             composable("edit_profile") { EditProfileScreen(navController = navController) }
             composable("requests") { RequestsScreen(navController = navController) }
             composable(
@@ -196,20 +172,126 @@ fun StudentNavigation(navController: NavHostController, startDestination: String
                     )
                 }
             }
+            composable(
+                route = "post_detail/{postId}",
+                arguments = listOf(navArgument("postId") {
+                    type = NavType.StringType
+                })
+            ) { backStackEntry ->
+                val postIdString = backStackEntry.arguments?.getString("postId")
+                if (postIdString != null) {
+                    PostDetailScreen(navController = navController, postId = UUID.fromString(postIdString))
+                }
+            }
+            composable(
+                route = "media_viewer/{encodedUrl}",
+                arguments = listOf(navArgument("encodedUrl") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val encodedUrl = backStackEntry.arguments?.getString("encodedUrl")
+                if (encodedUrl != null) {
+                    val fullUrl = URLDecoder.decode(encodedUrl, "UTF-8")
+                    FullScreenMediaViewer(navController = navController, mediaUrl = fullUrl)
+                }
+            }
+
+            // --- Admin Top-Level Route ---
+            // The destination for admin_home is now the new Host Screen with the bottom tabs
+            composable("admin_home") {
+                AdminHostScreen(navController = navController)
+            }
         }
     }
 }
 
+// REMOVED AdminNavigation and StudentNavigation functions as they are consolidated above.
+// The code below defines the new AdminHostScreen.
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AdminNavigation(navController: NavHostController, startDestination: String) {
-    Scaffold { innerPadding ->
+fun AdminHostScreen(navController: NavHostController) {
+    // NavController for the inner host to switch between Create and Feed
+    val innerNavController = rememberNavController()
+    val context = LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val adminItems = listOf(
+        NavigationItem("Create", "admin_create", Icons.Default.Upload),
+        NavigationItem("Feed", "admin_feed", Icons.Default.Search)
+    )
+    val navBackStackEntry by innerNavController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = when (currentRoute) {
+                            "admin_create" -> "General Info"
+                            "admin_feed" -> "Updates & Events"
+                            else -> "Admin Interface"
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
+                },
+                actions = {
+                    // Logout Button for Admin
+                    IconButton(onClick = {
+                        coroutineScope.launch {
+                            sessionManager.setLoggedIn(false)
+                            sessionManager.setAdminStatus(false)
+                            navController.navigate("splash") {
+                                popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                            }
+                        }
+                    }) {
+                        Icon(Icons.Default.ExitToApp, contentDescription = "Logout")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            NavigationBar {
+                adminItems.forEach { item ->
+                    NavigationBarItem(
+                        icon = { Icon(item.icon, contentDescription = item.title) },
+                        label = { Text(item.title) },
+                        selected = currentRoute == item.route,
+                        onClick = {
+                            innerNavController.navigate(item.route) {
+                                popUpTo(innerNavController.graph.findStartDestination().id) {
+                                    saveState = true
+                                }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    ) { innerPadding ->
         NavHost(
-            navController = navController,
-            startDestination = startDestination,
+            navController = innerNavController, // Use the innerNavController
+            startDestination = "admin_create",
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable("admin_home") {
-                AdminGeneralInterfaceScreen(navController = navController)
+            // Note: AdminCreatePostScreen is the new name for AdminGeneralInterfaceScreen
+            composable("admin_create") { AdminCreatePostScreen(navController = navController) }
+            composable("admin_feed") { GeneralInterfaceScreen(navController = navController) }
+
+            // Route to Post Details (Navigates using the OUTER navController)
+            composable(
+                route = "post_detail/{postId}",
+                arguments = listOf(navArgument("postId") {
+                    type = NavType.StringType
+                })
+            ) { backStackEntry ->
+                val postIdString = backStackEntry.arguments?.getString("postId")
+                if (postIdString != null) {
+                    PostDetailScreen(navController = navController, postId = UUID.fromString(postIdString))
+                }
             }
         }
     }
@@ -294,7 +376,21 @@ fun SignInScreen(navController: NavController, viewModel: AuthViewModel) {
 
     LaunchedEffect(authResult) {
         authResult?.let { result ->
-            if (!result.isValid) {
+            if (result.isValid) {
+                if (result.isAdmin == true) {
+                    // Navigate to the new Admin Host screen
+                    navController.navigate("admin_home") {
+                        popUpTo("signin") { inclusive = true }
+                    }
+                } else {
+                    // Navigate to the regular student home flow
+                    if (result.userId != null) {
+                        navController.navigate("home") {
+                            popUpTo("signin") { inclusive = true }
+                        }
+                    }
+                }
+            } else if (result.isValid == false) {
                 Toast.makeText(context, "Invalid email or password.", Toast.LENGTH_SHORT).show()
             }
             viewModel.clearResult()

@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import androidx.datastore.preferences.core.stringPreferencesKey
 import java.util.UUID
+import kotlinx.coroutines.launch
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "session")
 
 class SessionManager(private val context: Context) {

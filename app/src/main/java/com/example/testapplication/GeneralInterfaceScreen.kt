@@ -1,6 +1,5 @@
 package com.example.testapplication
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,11 +31,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.NavController
-import com.google.gson.Gson
-import java.net.URLEncoder
 import java.util.UUID
+import androidx.compose.material.icons.filled.Delete
 
-@OptIn(ExperimentalMaterial3Api::class)
+// The @OptIn annotation is no longer needed here as Scaffold and TopAppBar were removed
 @Composable
 fun GeneralInterfaceScreen(
     navController: NavController,
@@ -44,8 +42,10 @@ fun GeneralInterfaceScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
-    // 1. Fetch the current user's ID
+
+    // 1. Fetch the current user's ID and Admin status
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
+    val isAdmin by sessionManager.isAdminFlow.collectAsState(initial = false)
 
     // 2. Trigger the post fetch whenever the userId becomes available or changes
     LaunchedEffect(userId) {
@@ -54,60 +54,73 @@ fun GeneralInterfaceScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { Text("Updates & Events", fontWeight = FontWeight.Bold) }
-            )
-        }
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
-        ) {
-            when (val state = generalViewModel.uiState) {
-                is GeneralUiState.Loading -> {
-                    CircularProgressIndicator()
-                }
-                is GeneralUiState.Success -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        reverseLayout = true
-                    ) {
-                        items(state.posts) { post ->
-                            PostCard(
-                                post = post,
-                                onClick = {
-                                    // Navigate using only the Post ID (UUID)
-                                    navController.navigate("post_detail/${post.id}")
+    // REMOVED: Scaffold and TopBar to avoid double titles when hosted by AdminHostScreen
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        when (val state = generalViewModel.uiState) {
+            is GeneralUiState.Loading -> {
+                CircularProgressIndicator()
+            }
+            is GeneralUiState.Success -> {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    reverseLayout = true
+                ) {
+                    items(state.posts) { post ->
+                        PostCard(
+                            post = post,
+                            // Pass the admin status and current user ID for deletion logic
+                            isAdmin = isAdmin,
+                            currentUserId = userId,
+                            onClick = {
+                                // Navigate using only the Post ID (UUID)
+                                navController.navigate("post_detail/${post.id}")
+                            },
+                            onDeletePost = { postId ->
+                                // Trigger deletion using the current user ID as the Admin ID
+                                userId?.let { adminId ->
+                                    generalViewModel.deletePost(adminId, postId)
                                 }
-                            )
-                        }
+                            }
+                        )
                     }
                 }
-                is GeneralUiState.Empty -> {
-                    Text("No posts yet. Check back later!", textAlign = TextAlign.Center)
-                }
-                is GeneralUiState.Error -> {
-                    Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
-                }
+            }
+            is GeneralUiState.Empty -> {
+                Text("No posts yet. Check back later!", textAlign = TextAlign.Center)
+            }
+            is GeneralUiState.Error -> {
+                Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
             }
         }
     }
 }
 
+// MODIFIED: Added isAdmin, currentUserId, and onDeletePost parameters
 @Composable
-fun PostCard(post: PostResponse, onClick: () -> Unit) {
+fun PostCard(
+    post: PostResponse,
+    isAdmin: Boolean,
+    currentUserId: UUID?,
+    onClick: () -> Unit,
+    onDeletePost: (UUID) -> Unit
+) {
     // --- Timestamp Formatting Logic ---
     val odt = OffsetDateTime.parse(post.created_at)
     val istOdt = odt.atZoneSameInstant(ZoneId.of("Asia/Kolkata"))
     val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
     val formattedTimestamp = istOdt.format(formatter)
     // --- End of Formatting Logic ---
+
+    // Logic to determine if the delete button should be visible
+    // It must be an Admin AND the post author must match the current user
+    val showDeleteButton = isAdmin && currentUserId == post.author_id
 
     Card(
         modifier = Modifier
@@ -117,8 +130,9 @@ fun PostCard(post: PostResponse, onClick: () -> Unit) {
     ) {
         Column {
             if (post.media_url != null) {
+                // Use RetrofitInstance.BASE_URL for media
                 AsyncImage(
-                    model = "http://172.17.2.88:8000${post.media_url}",
+                    model = RetrofitInstance.BASE_URL.dropLast(1) + post.media_url,
                     contentDescription = post.content,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -148,14 +162,28 @@ fun PostCard(post: PostResponse, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.SpaceBetween, // Use space between to push delete left
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { /* TODO: Handle like action */ }) {
-                        Icon(Icons.Outlined.ThumbUp, contentDescription = "Like")
+                    // Delete button, only visible to the Admin who created the post
+                    if (showDeleteButton) {
+                        IconButton(onClick = { onDeletePost(post.id) }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete Post")
+                        }
+                    } else {
+                        // Spacer maintains alignment if the delete button is hidden (for student view)
+                        Spacer(modifier = Modifier.width(48.dp))
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(onClick = { /* TODO: Handle dislike action */ }) {
-                        Icon(Icons.Outlined.ThumbDown, contentDescription = "Dislike")
+
+                    // Like/Dislike buttons (aligned to the right)
+                    Row {
+                        IconButton(onClick = { /* TODO: Handle like action */ }) {
+                            Icon(Icons.Outlined.ThumbUp, contentDescription = "Like")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = { /* TODO: Handle dislike action */ }) {
+                            Icon(Icons.Outlined.ThumbDown, contentDescription = "Dislike")
+                        }
                     }
                 }
             }

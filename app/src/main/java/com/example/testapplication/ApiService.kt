@@ -6,6 +6,7 @@ import retrofit2.http.Multipart
 import retrofit2.http.Part
 import retrofit2.Call
 import retrofit2.http.Body
+import retrofit2.http.DELETE // <-- NEW IMPORT
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.PUT
@@ -92,8 +93,13 @@ interface ApiService {
         @Part file: MultipartBody.Part?
     ): Call<PostResponse>
 
+    // NEW ADMIN ENDPOINT: DELETE a specific post
+    @DELETE("api/v4/admin/{admin_id}/posts/{post_id}")
+    fun deletePost(
+        @Path("admin_id") adminId: UUID,
+        @Path("post_id") postId: UUID
+    ): Call<Unit> // Assuming the backend returns an empty body or just 204 No Content
+
     @GET("api/v4/posts/{user_id}")
     fun getAllPosts(@Path("user_id") userId: UUID): Call<List<PostResponse>>
-
-
 }

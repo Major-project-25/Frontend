@@ -1,6 +1,6 @@
 package com.example.testapplication
 
-import okhttp3.MultipartBody // <-- FIXES Unresolved reference 'MultipartBody'
+import okhttp3.MultipartBody
 import retrofit2.Call
 import java.util.UUID
 
@@ -53,13 +53,17 @@ class UserRepository(private val apiService: ApiService) {
         return apiService.getConversationHistory(userId, otherUserId)
     }
 
-    // NEW FUNCTION
     fun uploadMediaFile(filePart: MultipartBody.Part): Call<MediaUploadResponse> {
         return apiService.uploadMediaFile(filePart)
     }
 
     fun getAllPosts(userId: UUID): Call<List<PostResponse>> {
         return apiService.getAllPosts(userId)
+    }
+
+    // NEW FUNCTION
+    fun deletePost(adminId: UUID, postId: UUID): Call<Unit> {
+        return apiService.deletePost(adminId, postId)
     }
 
     fun getVideoCallLink(userId: UUID, otherUserId: UUID): Call<MeetLinkResponse> {

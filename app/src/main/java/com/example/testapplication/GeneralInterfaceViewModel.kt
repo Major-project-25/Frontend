@@ -8,7 +8,7 @@ import androidx.lifecycle.ViewModel
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
-import java.util.UUID // <-- ADDED THIS IMPORT STATEMENT
+import java.util.UUID
 
 // UI State for the General Interface Screen
 sealed interface GeneralUiState {
@@ -24,8 +24,6 @@ class GeneralInterfaceViewModel : ViewModel() {
     var uiState: GeneralUiState by mutableStateOf(GeneralUiState.Loading)
         private set
 
-    // We removed the init block, relying on the screen to call this function
-
     fun fetchPosts(userId: UUID) {
         uiState = GeneralUiState.Loading
         userRepository.getAllPosts(userId).enqueue(object : Callback<List<PostResponse>> {
@@ -35,9 +33,11 @@ class GeneralInterfaceViewModel : ViewModel() {
                     if (posts.isNullOrEmpty()) {
                         uiState = GeneralUiState.Empty
                     } else {
-                        uiState = GeneralUiState.Success(posts)
+                        // Ensure posts are unique before updating the state (good practice)
+                        uiState = GeneralUiState.Success(posts.distinctBy { it.id })
                     }
                 } else {
+                    Log.e("GenInterfaceViewModel", "Response failed: ${response.code()}")
                     uiState = GeneralUiState.Error
                 }
             }
@@ -45,6 +45,35 @@ class GeneralInterfaceViewModel : ViewModel() {
             override fun onFailure(call: Call<List<PostResponse>>, t: Throwable) {
                 Log.e("GenInterfaceViewModel", "Failed to fetch posts", t)
                 uiState = GeneralUiState.Error
+            }
+        })
+    }
+
+    // NEW FUNCTION: Handles post deletion
+    fun deletePost(adminId: UUID, postId: UUID) {
+        userRepository.deletePost(adminId, postId).enqueue(object : Callback<Unit> {
+            override fun onResponse(call: Call<Unit>, response: Response<Unit>) {
+                if (response.isSuccessful) {
+                    // Update UI State by removing the deleted post from the list
+                    if (uiState is GeneralUiState.Success) {
+                        val currentPosts = (uiState as GeneralUiState.Success).posts
+                        val updatedPosts = currentPosts.filter { it.id != postId }
+
+                        uiState = if (updatedPosts.isEmpty()) {
+                            GeneralUiState.Empty
+                        } else {
+                            GeneralUiState.Success(updatedPosts)
+                        }
+                    }
+                } else {
+                    Log.e("GenInterfaceViewModel", "Deletion failed: ${response.code()}")
+                    // Optionally set an error state or show a Toast
+                }
+            }
+
+            override fun onFailure(call: Call<Unit>, t: Throwable) {
+                Log.e("GenInterfaceViewModel", "Deletion network error", t)
+                // Optionally set an error state or show a Toast
             }
         })
     }

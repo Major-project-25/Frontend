@@ -24,10 +24,15 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
-
+import androidx.compose.material.icons.Icons
+// FIX: Using AutoMirrored version is best practice
+import androidx.compose.material.icons.automirrored.filled.ExitToApp // <-- FIX 1: Use AutoMirrored
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope // <-- FIX 2: Missing import
 
 data class UserInterest(val name: String, val rating: Int)
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     navController: NavController,
@@ -37,6 +42,7 @@ fun ProfileScreen(
     val sessionManager = remember { SessionManager(context) }
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
     val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val coroutineScope = rememberCoroutineScope() // <-- FIX 3: Coroutine scope is now imported
 
     LaunchedEffect(navBackStackEntry, userId) {
         userId?.let {
@@ -44,7 +50,32 @@ fun ProfileScreen(
         }
     }
 
-    Scaffold { innerPadding ->
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text("Profile", fontWeight = FontWeight.Bold) },
+                actions = {
+                    IconButton(onClick = {
+                        // Logout logic
+                        coroutineScope.launch {
+                            sessionManager.setLoggedIn(false)
+                            sessionManager.setAdminStatus(false)
+                            // Navigate to splash screen, clearing the back stack
+                            navController.navigate("splash") {
+                                popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                            }
+                        }
+                    }) {
+                        // FIX: Use the imported AutoMirrored icon to resolve deprecation
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = "Sign Out"
+                        )
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -90,7 +121,7 @@ fun UserProfileContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(32.dp),
+            .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Image(
@@ -148,6 +179,7 @@ fun InterestRow(interest: UserInterest) {
         Column(modifier = Modifier.weight(1f)) {
             Text(text = interest.name, fontSize = 14.sp)
             Spacer(modifier = Modifier.height(4.dp))
+            // FIX: Use the modern Material3 LinearProgressIndicator which takes a progress float
             LinearProgressIndicator(
                 progress = interest.rating / 10f,
                 modifier = Modifier.fillMaxWidth()
