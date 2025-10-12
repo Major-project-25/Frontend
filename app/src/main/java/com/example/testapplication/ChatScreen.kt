@@ -1,10 +1,11 @@
 package com.example.testapplication
 
-import android.net.Uri // ADDED
+import android.net.Uri
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult // ADDED
-import androidx.activity.result.contract.ActivityResultContracts // ADDED
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable // REQUIRED
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,8 +22,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset // REQUIRED
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale // ADDED
+import androidx.compose.ui.graphics.graphicsLayer // REQUIRED
+import androidx.compose.ui.input.pointer.pointerInput // REQUIRED
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
@@ -31,13 +35,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.compose.runtime.snapshotFlow // ADDED
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
 import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.util.UUID
-import coil.compose.AsyncImage // ADDED
+import coil.compose.AsyncImage
+import java.net.URLEncoder // REQUIRED
+import androidx.compose.foundation.gestures.detectTransformGestures // REQUIRED
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,12 +61,12 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
 
-    // --- NEW STATE: Unread Message Count ---
+    // --- Unread Message Count ---
     var unreadCount by remember { mutableIntStateOf(0) }
     val lastKnownMessageCount = remember { mutableIntStateOf(0) }
     // --- END NEW STATE ---
 
-    // --- NEW: File Picker Launcher ---
+    // --- File Picker Launcher ---
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -71,9 +77,7 @@ fun ChatScreen(
                 return@let
             }
 
-            // Determine file details and initiate upload
             val mimeType = context.contentResolver.getType(it) ?: "application/octet-stream"
-            // NOTE: getFile is assumed to be available from FileUtility.kt
             val file = context.contentResolver.getFile(context, it)
 
             val messageType = when {
@@ -83,7 +87,7 @@ fun ChatScreen(
             }
 
             chatViewModel.sendMediaMessage(currentUserId, friendId, it, mimeType, messageType)
-            unreadCount = 0 // Reset count since sender is viewing screen
+            unreadCount = 0
         }
     }
     // --- END NEW LAUNCHER ---
@@ -94,22 +98,18 @@ fun ChatScreen(
         }
     }
 
-    // --- LOGIC 1: Initial Load Scroll & New Message Detection (FOR INDICATOR) ---
+    // --- LOGIC 1: Scroll & New Message Detection ---
     LaunchedEffect(uiState.messages.size) {
         if (uiState.messages.size > lastKnownMessageCount.intValue) {
-            // A new message has arrived (WebSocket or optimistic send)
             val isAtBottom = listState.firstVisibleItemIndex == 0
 
             if (lastKnownMessageCount.intValue == 0) {
-                // Case A: Initial message load (history fetch). Always scroll to bottom.
                 coroutineScope.launch { listState.scrollToItem(0) }
                 unreadCount = 0
             } else if (isAtBottom) {
-                // Case B: New message arrived, and user is already at the bottom.
                 coroutineScope.launch { listState.animateScrollToItem(0) }
                 unreadCount = 0
             } else {
-                // Case C: New message arrived, and user is scrolled up.
                 unreadCount++
             }
         }
@@ -127,7 +127,6 @@ fun ChatScreen(
                 }
             }
     }
-    // --- END NEW LOGIC ---
 
     Scaffold(
         topBar = {
@@ -135,12 +134,10 @@ fun ChatScreen(
                 navController = navController,
                 friendName = friendName,
                 onVideoCallClick = {
-                    // When the video icon is clicked, call the API
                     if (userId != null) {
                         RetrofitInstance.api.getVideoCallLink(userId!!, friendId).enqueue(object : Callback<MeetLinkResponse> {
                             override fun onResponse(call: Call<MeetLinkResponse>, response: Response<MeetLinkResponse>) {
                                 response.body()?.meetLink?.let { link ->
-                                    // Open the received link in the browser
                                     uriHandler.openUri(link)
                                 }
                             }
@@ -153,7 +150,6 @@ fun ChatScreen(
             )
         },
         bottomBar = {
-            // UPDATED: Pass the onPlusClick lambda
             ChatInputBar(
                 onSendMessage = { messageContent ->
                     userId?.let {
@@ -162,7 +158,6 @@ fun ChatScreen(
                     }
                 },
                 onPlusClick = {
-                    // Trigger the file picker
                     filePickerLauncher.launch("image/*,video/*")
                 }
             )
@@ -193,7 +188,15 @@ fun ChatScreen(
                     reverseLayout = true
                 ) {
                     items(uiState.messages.reversed()) { message ->
-                        MessageBubble(message = message)
+                        MessageBubble(
+                            message = message,
+                            // PASS THE NEW MEDIA CLICK HANDLER
+                            onMediaClick = { mediaUrl ->
+                                // URL Encode the media URL to pass it safely through navigation
+                                val encodedUrl = URLEncoder.encode(mediaUrl, "UTF-8")
+                                navController.navigate("media_viewer/$encodedUrl")
+                            }
+                        )
                     }
                 }
             }
@@ -203,14 +206,12 @@ fun ChatScreen(
                 FloatingActionButton(
                     onClick = {
                         coroutineScope.launch {
-                            // Manual scroll to the newest message (index 0)
                             listState.animateScrollToItem(0)
                             unreadCount = 0
                         }
                     },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        // Position the button above the input bar and inside the padding
                         .padding(
                             end = 16.dp,
                             bottom = innerPadding.calculateBottomPadding() + 8.dp
@@ -226,14 +227,14 @@ fun ChatScreen(
                     )
                 }
             }
-            // --- END NEW UI ---
         }
     }
 }
 
 
+// UPDATED: Added onMediaClick handler
 @Composable
-fun MessageBubble(message: Message) {
+fun MessageBubble(message: Message, onMediaClick: (String) -> Unit) {
     val isMyMessage = message.author == MessageAuthor.ME
     val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0)
     val horizontalArrangement = if (isMyMessage) Arrangement.End else Arrangement.Start
@@ -256,15 +257,19 @@ fun MessageBubble(message: Message) {
                 .background(bubbleColor)
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
-            Column { // Use a Column to stack media and text
-                // NEW: Display media if present
+            Column {
+                // NEW: Display media if present and make it clickable
                 if (message.mediaUrl != null && message.messageType != "text") {
                     AsyncImage(
                         model = message.mediaUrl,
                         contentDescription = "${message.messageType} attachment",
                         modifier = Modifier
                             .size(200.dp)
-                            .clip(RoundedCornerShape(8.dp)),
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                // Trigger the navigation action
+                                message.mediaUrl?.let { onMediaClick(it) }
+                            },
                         contentScale = ContentScale.Crop,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -286,12 +291,92 @@ fun MessageBubble(message: Message) {
     }
 }
 
+// =============================================================
+// NEW COMPONENTS FOR FULL-SCREEN CHAT MEDIA VIEWING
+// =============================================================
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FullScreenMediaViewer(navController: NavController, mediaUrl: String) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Media Viewer", fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = { navController.popBackStack() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                }
+            )
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            ZoomableImage(mediaUrl)
+        }
+    }
+}
+
+// Core logic for image pan and zoom
+@Composable
+fun ZoomableImage(mediaUrl: String) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    val maxScale = 5f
+    val minScale = 1f
+
+    val fullUrl = mediaUrl
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    val newScale = (scale * zoom).coerceIn(minScale, maxScale)
+
+                    val boundsWidth = size.width * (newScale - 1) / 2
+                    val boundsHeight = size.height * (newScale - 1) / 2
+
+                    val newOffset = if (newScale > 1f) {
+                        Offset(
+                            x = (offset.x + pan.x * newScale).coerceIn(-boundsWidth, boundsWidth),
+                            y = (offset.y + pan.y * newScale).coerceIn(-boundsHeight, boundsHeight)
+                        )
+                    } else {
+                        Offset.Zero
+                    }
+
+                    scale = newScale
+                    offset = newOffset
+                }
+            }
+    ) {
+        AsyncImage(
+            model = fullUrl,
+            contentDescription = "Chat Media",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(
+                    scaleX = scale,
+                    scaleY = scale,
+                    translationX = offset.x,
+                    translationY = offset.y
+                ),
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatTopBar(
     navController: NavController,
     friendName: String,
-    onVideoCallClick: () -> Unit // Add this callback
+    onVideoCallClick: () -> Unit
 ) {
     TopAppBar(
         title = {
@@ -307,7 +392,6 @@ fun ChatTopBar(
             }
         },
         actions = {
-            // Update the IconButton to use the callback
             IconButton(onClick = onVideoCallClick) {
                 Icon(Icons.Default.Videocam, contentDescription = "Video Call")
             }
@@ -315,7 +399,6 @@ fun ChatTopBar(
     )
 }
 
-// UPDATED: Added onPlusClick parameter
 @Composable
 fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
     var text by remember { mutableStateOf("") }
@@ -327,7 +410,6 @@ fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Mapped '+' icon to the new action
             IconButton(onClick = onPlusClick) {
                 Icon(Icons.Default.Add, contentDescription = "Attach")
             }

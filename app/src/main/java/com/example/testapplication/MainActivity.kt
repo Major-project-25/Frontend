@@ -7,7 +7,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
@@ -21,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -44,6 +42,8 @@ import android.os.Build
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import java.util.*
+import java.net.URLDecoder // REQUIRED
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -146,19 +146,31 @@ fun StudentNavigation(navController: NavHostController, startDestination: String
                     )
                 }
             }
-            // UPDATED: Passed navController to GeneralInterfaceScreen
             composable("general_interface") { GeneralInterfaceScreen(navController = navController) }
 
-            // NEW ROUTE: For viewing the full post by ID (UUID)
+            // Route for Post Details
             composable(
                 route = "post_detail/{postId}",
                 arguments = listOf(navArgument("postId") {
-                    type = NavType.StringType // UUID is passed as a String
+                    type = NavType.StringType
                 })
             ) { backStackEntry ->
                 val postIdString = backStackEntry.arguments?.getString("postId")
                 if (postIdString != null) {
                     PostDetailScreen(navController = navController, postId = UUID.fromString(postIdString))
+                }
+            }
+
+            // NEW ROUTE: For viewing zoomable media by URL (encoded)
+            composable(
+                route = "media_viewer/{encodedUrl}",
+                arguments = listOf(navArgument("encodedUrl") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val encodedUrl = backStackEntry.arguments?.getString("encodedUrl")
+                if (encodedUrl != null) {
+                    // Decode the URL back to its original format (including slashes)
+                    val fullUrl = URLDecoder.decode(encodedUrl, "UTF-8")
+                    FullScreenMediaViewer(navController = navController, mediaUrl = fullUrl)
                 }
             }
 
@@ -196,7 +208,6 @@ fun AdminNavigation(navController: NavHostController, startDestination: String) 
             startDestination = startDestination,
             modifier = Modifier.padding(innerPadding)
         ) {
-            // The admin's home is the only screen they can access
             composable("admin_home") {
                 AdminGeneralInterfaceScreen(navController = navController)
             }
@@ -236,8 +247,6 @@ fun BottomNavigationBar(navController: NavController) {
 }
 
 data class NavigationItem(val title: String, val route: String, val icon: ImageVector)
-
-// --- Simple Screen Composable definitions ---
 
 @Composable
 fun SplashScreen(navController: NavController) {
@@ -310,7 +319,6 @@ fun SignInScreen(navController: NavController, viewModel: AuthViewModel) {
 
 @Composable
 fun SignUpScreen(navController: NavController, viewModel: AuthViewModel) {
-    // ... Placeholder for your full SignUpScreen UI and logic ...
     Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Sign Up", fontSize = 28.sp, fontWeight = FontWeight.Bold)
     }
@@ -318,7 +326,6 @@ fun SignUpScreen(navController: NavController, viewModel: AuthViewModel) {
 
 @Composable
 fun SetupAccountScreen(navController: NavController, userId: UUID) {
-    // ... Placeholder for your full SetupAccountScreen UI and logic ...
     Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Setup Account", fontSize = 28.sp, fontWeight = FontWeight.Bold)
     }
@@ -326,7 +333,6 @@ fun SetupAccountScreen(navController: NavController, userId: UUID) {
 
 @Composable
 fun ProfileSetupScreen(navController: NavController, viewModel: ProfileSetupViewModel, sessionManager: SessionManager, userId: UUID) {
-    // ... Placeholder for your full ProfileSetupScreen UI and logic ...
     Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Text("Setup Profile", fontSize = 28.sp, fontWeight = FontWeight.Bold)
     }
