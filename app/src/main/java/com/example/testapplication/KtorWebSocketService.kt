@@ -2,6 +2,7 @@ package com.example.testapplication
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.websocket.*
@@ -13,10 +14,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.*
 
-// NEW: Shared Flow for immediate warnings/errors that don't belong in the chat history
 data class ChatWarning(val message: String)
-
-// NEW: Enum to clearly represent the WebSocket's connection state.
 enum class ConnectionStatus {
     DISCONNECTED, CONNECTING, CONNECTED, FAILED
 }
@@ -24,21 +22,22 @@ enum class ConnectionStatus {
 class KtorWebSocketService(private val context: Context) {
     private val client = HttpClient(CIO) {
         install(WebSockets) {
-            // Sending a ping periodically helps keep the connection alive through routers and firewalls.
             pingInterval = 20_000
         }
     }
     private val gson = Gson()
     private var session: DefaultClientWebSocketSession? = null
 
-    private val _messages = MutableSharedFlow<MessageResponse>()
+    // --- 1. CONFIGURE SHARED FLOW WITH A REPLAY CACHE ---
+    // This tells the flow to cache the last emitted item. If the UI subscribes
+    // late, the flow will immediately "replay" the last message to it.
+    private val _messages = MutableSharedFlow<MessageResponse>(replay = 1)
     val messages = _messages.asSharedFlow()
 
-    // NEW FLOW: To emit moderation warnings back to the sender
-    private val _warnings = MutableSharedFlow<ChatWarning>()
+    private val _warnings = MutableSharedFlow<ChatWarning>(replay = 1)
     val warnings = _warnings.asSharedFlow()
+    // --------------------------------------------------------
 
-    // A StateFlow to hold and expose the current connection status to the app.
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus = _connectionStatus.asStateFlow()
 
@@ -61,24 +60,32 @@ class KtorWebSocketService(private val context: Context) {
                 for (frame in incoming) {
                     if (frame is Frame.Text) {
                         val text = frame.readText()
+                        println("<<<--- RAW MESSAGE RECEIVED FROM SERVER: $text")
 
-                        // Logic to handle different types of incoming messages.
-                        val jsonObject = gson.fromJson(text, Map::class.java)
-                        when (jsonObject.get("type")) {
-                            "video_call_invitation" -> {
-                                val callerName = jsonObject["caller_name"] as String
-                                val meetLink = jsonObject["meet_link"] as String
-                                NotificationService.showVideoCallNotification(context, callerName, meetLink)
+                        try {
+                            val jsonObject = gson.fromJson(text, Map::class.java)
+                            when (jsonObject["type"] as? String) {
+                                "video_call_invitation" -> {
+                                    val callerName = jsonObject["caller_name"] as String
+                                    val meetLink = jsonObject["meet_link"] as String
+                                    NotificationService.showVideoCallNotification(context, callerName, meetLink)
+                                }
+                                "moderation_warning" -> {
+                                    val warningMessage = jsonObject["message"] as String
+                                    // --- 2. USE EMIT INSTEAD OF TRYEMIT ---
+                                    // emit is a suspending function and is safer with a replay cache.
+                                    _warnings.emit(ChatWarning(warningMessage))
+                                }
+                                else -> {
+                                    val message = gson.fromJson(text, MessageResponse::class.java)
+                                    // --- 3. USE EMIT INSTEAD OF TRYEMIT ---
+                                    _messages.emit(message)
+                                }
                             }
-                            // NEW CASE: Handle moderation warnings
-                            "moderation_warning" -> {
-                                val warningMessage = jsonObject["message"] as String
-                                _warnings.tryEmit(ChatWarning(warningMessage))
-                            }
-                            else -> {
-                                val message = gson.fromJson(text, MessageResponse::class.java)
-                                _messages.tryEmit(message)
-                            }
+                        } catch (e: JsonSyntaxException) {
+                            println("!!! GSON PARSING FAILED: ${e.message}")
+                        } catch (e: Exception) {
+                            println("!!! ERROR PROCESSING FRAME: ${e.message}")
                         }
                     }
                 }
