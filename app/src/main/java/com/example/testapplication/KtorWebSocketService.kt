@@ -28,15 +28,16 @@ class KtorWebSocketService(private val context: Context) {
     private val gson = Gson()
     private var session: DefaultClientWebSocketSession? = null
 
-    // --- 1. CONFIGURE SHARED FLOW WITH A REPLAY CACHE ---
-    // This tells the flow to cache the last emitted item. If the UI subscribes
-    // late, the flow will immediately "replay" the last message to it.
     private val _messages = MutableSharedFlow<MessageResponse>(replay = 1)
     val messages = _messages.asSharedFlow()
 
     private val _warnings = MutableSharedFlow<ChatWarning>(replay = 1)
     val warnings = _warnings.asSharedFlow()
-    // --------------------------------------------------------
+
+    // --- NEW: Deletion Event Flow ---
+    private val _deletionEvents = MutableSharedFlow<Long>(replay = 0)
+    val deletionEvents = _deletionEvents.asSharedFlow()
+    // -----------------------------------
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus = _connectionStatus.asStateFlow()
@@ -49,7 +50,7 @@ class KtorWebSocketService(private val context: Context) {
         try {
             client.webSocket(
                 method = HttpMethod.Get,
-                host = "172.17.2.88", // Your confirmed server IP
+                host = "192.168.51.211", // Your confirmed server IP
                 port = 8000,
                 path = "/api/v3/messages/ws/$userId"
             ) {
@@ -72,13 +73,17 @@ class KtorWebSocketService(private val context: Context) {
                                 }
                                 "moderation_warning" -> {
                                     val warningMessage = jsonObject["message"] as String
-                                    // --- 2. USE EMIT INSTEAD OF TRYEMIT ---
-                                    // emit is a suspending function and is safer with a replay cache.
                                     _warnings.emit(ChatWarning(warningMessage))
+                                }
+                                "message_deleted" -> { // <-- NEW CASE: Handles the deletion notification
+                                    // Message IDs often come back as Doubles from generic JSON parsing
+                                    val messageId = (jsonObject["message_id"] as? Double)?.toLong()
+                                    if (messageId != null) {
+                                        _deletionEvents.emit(messageId) // Notify the ViewModel to remove the message
+                                    }
                                 }
                                 else -> {
                                     val message = gson.fromJson(text, MessageResponse::class.java)
-                                    // --- 3. USE EMIT INSTEAD OF TRYEMIT ---
                                     _messages.emit(message)
                                 }
                             }

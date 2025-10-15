@@ -75,4 +75,8 @@ class UserRepository(private val apiService: ApiService) {
         return apiService.reactToPost(postId, userId, reaction)
     }
 
+    fun deleteChatMessage(messageId: Long, userId: UUID): Call<Unit> {
+        return apiService.deleteChatMessage(messageId, userId)
+    }
+
 }

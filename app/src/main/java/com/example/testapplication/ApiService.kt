@@ -110,4 +110,10 @@ interface ApiService {
         @Path("user_id") userId: UUID,
         @Body reaction: ReactionCreate
     ): Call<PostResponse>
+
+    @DELETE("api/v3/messages/{message_id}")
+    fun deleteChatMessage(
+        @Path("message_id") messageId: Long,
+        @Query("user_id") userId: UUID
+    ): Call<Unit>
 }

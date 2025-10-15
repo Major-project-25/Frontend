@@ -7,7 +7,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 object RetrofitInstance {
 
     // FIX: Define BASE_URL as a standard public property of the object.
-    val BASE_URL = "http://172.17.2.88:8000/"
+    //val BASE_URL = "http://172.17.2.88:8000/"
+    val BASE_URL = "http://192.168.51.211:8000/"
 
     // Custom Gson instance to handle UUIDs from the API
     private val gson = GsonBuilder()

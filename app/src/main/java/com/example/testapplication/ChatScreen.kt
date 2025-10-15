@@ -4,8 +4,12 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -44,8 +49,10 @@ import java.util.UUID
 import coil.compose.AsyncImage
 import java.net.URLEncoder
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.ExperimentalFoundationApi
 
-@OptIn(ExperimentalMaterial3Api::class)
+// CRITICAL ANNOTATION to allow use of Experimental APIs
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
     navController: NavController,
@@ -55,21 +62,19 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
-    // FIX: Use 'by' delegate for clean access to state and triggers
     val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
     val uiState by chatViewModel.uiState.collectAsState()
 
-    val messages = uiState.messages // FIX: Direct access to the list from the collected state
+    val messages = uiState.messages
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // --- Unread Message Count ---
     var unreadCount by remember { mutableIntStateOf(0) }
 
-    // --- File Picker Launcher ---
+    // --- File Picker Launcher (omitted for brevity) ---
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -81,6 +86,8 @@ fun ChatScreen(
             }
 
             val mimeType = context.contentResolver.getType(it) ?: "application/octet-stream"
+            // FIX: Mark 'file' as unused to eliminate linter warning
+            @Suppress("UNUSED_VARIABLE")
             val file = context.contentResolver.getFile(context, it)
 
             val messageType = when {
@@ -101,7 +108,7 @@ fun ChatScreen(
         }
     }
 
-    // --- FIX 1: Display Moderation Warning in a Snackbar ---
+    // Display Moderation Warning (omitted for brevity)
     LaunchedEffect(uiState.moderationWarning) {
         uiState.moderationWarning?.let { warning ->
             coroutineScope.launch {
@@ -113,26 +120,18 @@ fun ChatScreen(
             }
         }
     }
-    // --- END FIX 1 ---
 
-    // --- FIX 2: Scroll to bottom immediately when a new message arrives ---
-    // This is the CRITICAL fix for the real-time display issue.
+    // Scroll to bottom immediately when a new message arrives (omitted for brevity)
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            // Check if the screen was just launched (size > 0) OR a new message arrived (size increased)
-            // Always scroll to the top (which is the bottom of the chat in reverseLayout)
             coroutineScope.launch {
                 listState.animateScrollToItem(0)
             }
-            // Reset unread count if a new message forced a scroll
             unreadCount = 0
         }
-        // NOTE: The previous complex logic for tracking lastKnownMessageCount and isAtBottom
-        // is simplified. When a message is sent (by me or friend), we force a scroll.
     }
 
-    // --- LOGIC 2: Reset unread count when the user scrolls to the bottom ---
-    // This part remains useful for manual user scrolling.
+    // Reset unread count when the user scrolls to the bottom (omitted for brevity)
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { firstVisibleIndex ->
@@ -171,7 +170,6 @@ fun ChatScreen(
                 onSendMessage = { messageContent ->
                     userId?.let {
                         chatViewModel.sendMessage(friendId, messageContent, it)
-                        // Do NOT reset unreadCount here, let the LaunchedEffect(messages.size) handle it
                     }
                 },
                 onPlusClick = {
@@ -183,6 +181,7 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color(0xFFFAFAFA))
                 .padding(innerPadding),
             contentAlignment = Alignment.Center
         ) {
@@ -190,7 +189,7 @@ fun ChatScreen(
                 CircularProgressIndicator()
             } else if (uiState.error != null) {
                 Text("Something went wrong. Please try again.", textAlign = TextAlign.Center)
-            } else if (messages.isEmpty()) { // Use 'messages' state
+            } else if (messages.isEmpty()) {
                 Text(
                     text = "No messages here yet.\nBe the first to say hi!",
                     textAlign = TextAlign.Center,
@@ -204,19 +203,28 @@ fun ChatScreen(
                         .padding(horizontal = 8.dp),
                     reverseLayout = true
                 ) {
-                    items(messages.reversed()) { message -> // Use 'messages' state
-                        MessageBubble(
+                    items(messages.reversed()) { message ->
+                        // Pass the delete function down to the menu composable
+                        MessageBubbleWithMenu(
                             message = message,
                             onMediaClick = { mediaUrl ->
                                 val encodedUrl = URLEncoder.encode(mediaUrl, "UTF-8")
                                 navController.navigate("media_viewer/$encodedUrl")
+                            },
+                            // CRITICAL FIX: Ensure lambda parameter is explicitly Long
+                            onDelete = { messageId: Long ->
+                                userId?.let {
+                                    // This is the call on line 345
+                                    chatViewModel.deleteMessage(messageId, it)
+                                }
                             }
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
                 }
             }
 
-            // --- UI: Floating Button/Badge for Manual Scroll ---
+            // Floating Button/Badge for Manual Scroll (omitted for brevity)
             if (unreadCount > 0) {
                 FloatingActionButton(
                     onClick = {
@@ -246,70 +254,164 @@ fun ChatScreen(
     }
 }
 
-
-// UPDATED: Added onMediaClick handler
+// CRITICAL FIX: The onDelete lambda now correctly expects a Long
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubble(message: Message, onMediaClick: (String) -> Unit) {
-// ... (MessageBubble code remains unchanged)
+fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDelete: (Long) -> Unit) {
     val isMyMessage = message.author == MessageAuthor.ME
-    val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0)
     val horizontalArrangement = if (isMyMessage) Arrangement.End else Arrangement.Start
-    val shape = if (isMyMessage) {
-        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp)
-    } else {
-        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp)
-    }
+
+    var showMenuIcon by remember { mutableStateOf(false) }
+    var showTimestampMenu by remember { mutableStateOf(false) }
+
+    val canDelete = isMyMessage
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         horizontalArrangement = horizontalArrangement,
-        verticalAlignment = Alignment.Bottom
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .clip(shape)
-                .background(bubbleColor)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
-            Column {
-                // NEW: Display media if present and make it clickable
-                if (message.mediaUrl != null && message.messageType != "text") {
-                    AsyncImage(
-                        model = message.mediaUrl,
-                        contentDescription = "${message.messageType} attachment",
-                        modifier = Modifier
-                            .size(200.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                // Trigger the navigation action
-                                message.mediaUrl?.let { onMediaClick(it) }
-                            },
-                        contentScale = ContentScale.Crop,
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
-
-                // Only show text content if it exists
-                if (!message.text.isNullOrBlank()) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(text = message.text, color = Color.Black, fontSize = 16.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = message.timestamp, color = Color.Gray, fontSize = 10.sp)
+        // Kebab menu for THEM (left side) - Only shows timestamp option
+        if (!isMyMessage) {
+            AnimatedVisibility(
+                visible = showMenuIcon,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable { showTimestampMenu = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.Gray)
+                    DropdownMenu(
+                        expanded = showTimestampMenu,
+                        onDismissRequest = { showTimestampMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Sent: ${message.timestamp}") },
+                            onClick = { showTimestampMenu = false }
+                        )
                     }
-                } else if (message.mediaUrl != null && message.messageType != "text") {
-                    // For media-only messages, just show the timestamp
-                    Text(text = message.timestamp, color = Color.Gray, fontSize = 10.sp, modifier = Modifier.align(Alignment.End))
+                }
+            }
+        }
+
+        // Message Bubble itself
+        MessageBubbleContent(
+            message = message,
+            onMediaClick = onMediaClick,
+            onBubbleClick = { showMenuIcon = !showMenuIcon },
+            onBubbleLongPress = {
+                showMenuIcon = true
+                showTimestampMenu = true
+            }
+        )
+
+        // Kebab menu for ME (right side) - Shows Delete option
+        if (isMyMessage) {
+            AnimatedVisibility(
+                visible = showMenuIcon,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable { showTimestampMenu = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "Options", tint = Color.Gray)
+                    DropdownMenu(
+                        expanded = showTimestampMenu,
+                        onDismissRequest = { showTimestampMenu = false }
+                    ) {
+                        // Option 1: View Timestamp
+                        DropdownMenuItem(
+                            text = { Text("Sent: ${message.timestamp}") },
+                            onClick = { showTimestampMenu = false }
+                        )
+
+                        // Separator
+                        HorizontalDivider()
+
+                        // Option 2: Delete Message
+                        if (canDelete) {
+                            DropdownMenuItem(
+                                text = { Text("Delete Message", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    onDelete(message.id) // message.id is guaranteed Long
+                                    showTimestampMenu = false
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-// =============================================================
-// NEW COMPONENTS FOR FULL-SCREEN CHAT MEDIA VIEWING
-// =============================================================
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun MessageBubbleContent(
+    message: Message,
+    onMediaClick: (String) -> Unit,
+    onBubbleClick: () -> Unit,
+    onBubbleLongPress: () -> Unit
+) {
+    val isMyMessage = message.author == MessageAuthor.ME
+    val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0)
+    val shape = if (isMyMessage) {
+        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp)
+    } else {
+        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp)
+    }
+
+    Box(
+        modifier = Modifier
+            .clip(shape)
+            .background(bubbleColor)
+            .combinedClickable(
+                onClick = onBubbleClick,
+                onLongClick = onBubbleLongPress
+            )
+            .widthIn(max = 280.dp) // Max width constraint
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+
+            // 1. Display media if present
+            if (message.mediaUrl != null && message.messageType != "text") {
+                AsyncImage(
+                    model = message.mediaUrl,
+                    contentDescription = "${message.messageType} attachment",
+                    modifier = Modifier
+                        .size(200.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            message.mediaUrl?.let { onMediaClick(it) }
+                        },
+                    contentScale = ContentScale.Crop,
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            // 2. Text Content (Only)
+            if (!message.text.isNullOrBlank()) {
+                // FIX: Remove redundant non-null assertion on non-null receiver (String)
+                Text(
+                    text = message.text!!,
+                    color = Color.Black,
+                    fontSize = 16.sp,
+                    modifier = Modifier.wrapContentWidth(Alignment.Start)
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -9,12 +9,14 @@ enum class MessageAuthor {
 
 // Represents a single chat message
 data class Message(
-    val id: UUID = UUID.randomUUID(),
-    val text: String?, // Must be nullable to support media-only messages
+    // CRITICAL FIX: Change ID type from UUID to Long, and give it a dummy default value
+    // (UUID.randomUUID().mostSignificantBits is a common way to get a unique Long)
+    val id: Long = 0,
+    val text: String?,
     val author: MessageAuthor,
     val authorId: UUID,
-    val timestamp: String, // e.g., "10:10"
-    val date: String? = null, // e.g., "Fri, Jul 26"
-    val mediaUrl: String? = null, // URL for the uploaded file
-    val messageType: String = "text" // Type of content (text, image, video)
+    val timestamp: String,
+    val date: String? = null,
+    val mediaUrl: String? = null,
+    val messageType: String = "text"
 )

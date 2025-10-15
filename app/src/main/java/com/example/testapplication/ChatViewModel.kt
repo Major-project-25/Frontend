@@ -18,7 +18,9 @@ import retrofit2.Call
 import retrofit2.Callback
 import retrofit2.Response
 import java.io.File
-import java.time.LocalTime
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import java.util.UUID
 
 data class ChatUiState(
@@ -30,6 +32,7 @@ data class ChatUiState(
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val userRepository = UserRepository(RetrofitInstance.api)
+    // Assumes KtorWebSocketService includes .warnings and .messages flows
     private val ktorWebSocketService = KtorWebSocketService(application.applicationContext)
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -37,34 +40,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appContext = application.applicationContext
 
-    // Store the chat metadata
+    // Store the chat metadata for resyncing after delete
     private var currentChatFriendId: UUID? = null
     private var currentChatUserId: UUID? = null
+
+    // Helper to generate a reliable local timestamp: HH:mm
+    private fun getLocalTimestamp(): String {
+        val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+        return formatter.format(Calendar.getInstance().time)
+    }
 
     fun loadChat(currentUserId: UUID, friendId: UUID) {
         currentChatUserId = currentUserId
         currentChatFriendId = friendId
 
-        // --- Setup WebSocket Listener for incoming messages ---
+        // --- Setup WebSocket Listener for incoming messages (including echo) ---
         ktorWebSocketService.messages
             .onEach { messageResponse ->
-                // --- 1. ADD THIS LOG ---
-                // This will prove that the ViewModel is receiving the event from the service.
-                println(">>> ViewModel received new message via Flow: ${messageResponse.content}")
-
+                // This block adds messages received from the server (including the sender's echo)
                 val uiMessage = messageResponse.toUiMessage(currentUserId)
-
-                // This is the correct real-time update logic.
-                // It directly adds the new message to the list.
                 _uiState.update { currentState ->
-                    // --- 2. ADD THIS LOG ---
-                    // This will prove that the UI state is being updated.
-                    println(">>> Updating UI State with new message.")
                     currentState.copy(messages = currentState.messages + uiMessage, moderationWarning = null)
                 }
             }
             .launchIn(viewModelScope)
 
+        // --- Setup WebSocket Listener for moderation warnings ---
         ktorWebSocketService.warnings
             .onEach { warning ->
                 _uiState.update { currentState ->
@@ -72,6 +73,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             .launchIn(viewModelScope)
+
+        // --- NEW LISTENER: For real-time deletion events from server ---
+        ktorWebSocketService.deletionEvents
+            .onEach { messageIdToDelete ->
+                _uiState.update { currentState ->
+                    // Filter out the message by the ID received from the server
+                    currentState.copy(messages = currentState.messages.filter { it.id != messageIdToDelete })
+                }
+            }
+            .launchIn(viewModelScope)
+        // -----------------------------------------------------------------
 
 
         viewModelScope.launch {
@@ -101,12 +113,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         })
     }
 
-    // Your sendMedia and sendMessage functions (unchanged from your version)
+    // --- FIXED FUNCTION: sendMediaMessage (No optimistic update) ---
     fun sendMediaMessage(currentUserId: UUID, receiverId: UUID, fileUri: Uri, mimeType: String, messageType: String) {
         _uiState.update { it.copy(moderationWarning = null) }
+        // Relying on WebSocket echo to update UI.
+
+        // 1. Upload file and then send WebSocket message
         val file: File = appContext.contentResolver.getFile(appContext, fileUri)
         val requestFile = file.asRequestBody(mimeType.toMediaTypeOrNull())
         val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
+
         userRepository.uploadMediaFile(filePart).enqueue(object : Callback<MediaUploadResponse> {
             override fun onResponse(call: Call<MediaUploadResponse>, response: Response<MediaUploadResponse>) {
                 val mediaUrl = response.body()?.mediaUrl
@@ -130,8 +146,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         })
     }
 
+    // --- FIXED FUNCTION: sendMessage (No optimistic update) ---
     fun sendMessage(receiverId: UUID, content: String, currentUserId: UUID) {
         _uiState.update { it.copy(moderationWarning = null) }
+        // Relying on WebSocket echo to update UI.
+
+        // 1. Send the message via WebSocket
         viewModelScope.launch {
             val messageToSend = MessageCreate(
                 receiverId = receiverId,
@@ -141,6 +161,34 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             )
             ktorWebSocketService.sendMessage(messageToSend)
         }
+    }
+
+    // NEW FUNCTION: Handles message deletion
+    fun deleteMessage(messageId: Long, currentUserId: UUID) {
+        // 1. Optimistically remove the message from the UI on the sender's side
+        _uiState.update { currentState ->
+            currentState.copy(messages = currentState.messages.filter { it.id != messageId })
+        }
+
+        // 2. Send deletion request to the server
+        userRepository.deleteChatMessage(messageId, currentUserId).enqueue(object : Callback<Unit> {
+            override fun onResponse(call: Call<Unit>, response: Response<Unit>) {
+                if (!response.isSuccessful) {
+                    Log.e("ChatViewModel", "Failed to delete message: ${response.code()}")
+                    // If deletion fails, re-fetch history to resynchronize the UI
+                    currentChatUserId?.let { userId ->
+                        currentChatFriendId?.let { friendId ->
+                            fetchHistory(userId, friendId)
+                        }
+                    }
+                }
+                // NOTE: The recipient's deletion is handled by the WebSocket listener (deletionEvents)
+            }
+
+            override fun onFailure(call: Call<Unit>, t: Throwable) {
+                Log.e("ChatViewModel", "Network error on delete message", t)
+            }
+        })
     }
 
 
@@ -156,11 +204,13 @@ private fun MessageResponse.toUiMessage(currentUserId: UUID): Message {
     val author = if (this.senderId == currentUserId) MessageAuthor.ME else MessageAuthor.THEM
     val contentText = this.content
     val mediaFullPath = if (this.mediaUrl != null) {
+        // NOTE: Assumes RetrofitInstance.BASE_URL is accessible and ends with '/'
         RetrofitInstance.BASE_URL.dropLast(1) + this.mediaUrl
     } else {
         null
     }
     return Message(
+        id = this.id, // Ensure the server ID is used here
         text = contentText,
         author = author,
         authorId = this.senderId,
