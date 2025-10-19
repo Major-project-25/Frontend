@@ -66,7 +66,7 @@ fun GeneralInterfaceScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
-                    reverseLayout = true
+                    // CHANGE: Removed reverseLayout = true to put newest posts (index 0) at the top
                 ) {
                     items(state.posts) { post ->
                         PostCard(

@@ -51,6 +51,9 @@ import java.net.URLEncoder
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.ExperimentalFoundationApi
 
+// Define the custom color here for reuse
+private val BubblesBlue = Color(0xFFE5F3FD)
+
 // CRITICAL ANNOTATION to allow use of Experimental APIs
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -74,7 +77,7 @@ fun ChatScreen(
 
     var unreadCount by remember { mutableIntStateOf(0) }
 
-    // --- File Picker Launcher (omitted for brevity) ---
+    // Launcher for picking an image or video
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -496,6 +499,7 @@ fun ChatTopBar(
     friendName: String,
     onVideoCallClick: () -> Unit
 ) {
+    // START CHANGE: Apply BubblesBlue to TopAppBar
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -513,15 +517,26 @@ fun ChatTopBar(
             IconButton(onClick = onVideoCallClick) {
                 Icon(Icons.Default.Videocam, contentDescription = "Video Call")
             }
-        }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = BubblesBlue, // Light Blue Background
+            titleContentColor = Color.Black,
+            navigationIconContentColor = Color.Black,
+            actionIconContentColor = Color.Black
+        )
     )
+    // END CHANGE
 }
 
 @Composable
 fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
     var text by remember { mutableStateOf("") }
 
-    Surface(shadowElevation = 8.dp) {
+    // START CHANGE: Apply BubblesBlue to the Surface and TextField background
+    Surface(
+        shadowElevation = 8.dp,
+        color = BubblesBlue // Light Blue Background
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -538,6 +553,9 @@ fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
                 placeholder = { Text("Message...") },
                 shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.White, // Ensures the input field itself is white
+                    unfocusedContainerColor = Color.White, // Ensures the input field itself is white
+                    disabledContainerColor = Color.White,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
                 )
@@ -552,4 +570,5 @@ fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
             }
         }
     }
+    // END CHANGE
 }

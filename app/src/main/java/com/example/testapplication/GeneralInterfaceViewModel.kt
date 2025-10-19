@@ -24,17 +24,24 @@ class GeneralInterfaceViewModel : ViewModel() {
     var uiState: GeneralUiState by mutableStateOf(GeneralUiState.Loading)
         private set
 
+    // NEW: Private list to hold the current posts. This is essential for
+    // updating the UI list in real-time (via WebSocket) without refetching.
+    private var currentPosts: List<PostResponse> = emptyList()
+
     fun fetchPosts(userId: UUID) {
-        // ... (fetchPosts logic remains unchanged)
         uiState = GeneralUiState.Loading
         userRepository.getAllPosts(userId).enqueue(object : Callback<List<PostResponse>> {
             override fun onResponse(call: Call<List<PostResponse>>, response: Response<List<PostResponse>>) {
                 if (response.isSuccessful) {
                     val posts = response.body()
                     if (posts.isNullOrEmpty()) {
+                        currentPosts = emptyList()
                         uiState = GeneralUiState.Empty
                     } else {
-                        uiState = GeneralUiState.Success(posts.distinctBy { it.id }.sortedByDescending { it.created_at })
+                        // The posts are sorted here so the newest post is the first item (index 0).
+                        val sortedPosts = posts.distinctBy { it.id }.sortedByDescending { it.created_at }
+                        currentPosts = sortedPosts // Store the sorted list
+                        uiState = GeneralUiState.Success(sortedPosts)
                     }
                 } else {
                     Log.e("GenInterfaceViewModel", "Response failed: ${response.code()}")
@@ -51,11 +58,10 @@ class GeneralInterfaceViewModel : ViewModel() {
 
     // ... (deletePost logic remains unchanged)
     fun deletePost(adminId: UUID, postId: UUID) {
-        // ... (keep the deletion logic as it was)
         if (uiState is GeneralUiState.Success) {
-            val currentPosts = (uiState as GeneralUiState.Success).posts
             val updatedPosts = currentPosts.filter { it.id != postId }
 
+            currentPosts = updatedPosts // Update private list
             uiState = if (updatedPosts.isEmpty()) {
                 GeneralUiState.Empty
             } else {
@@ -76,18 +82,18 @@ class GeneralInterfaceViewModel : ViewModel() {
         })
     }
 
-    // NEW FUNCTION: Handle user reaction
+    // UPDATED: Handle user reaction and update currentPosts list
     fun handleReaction(userId: UUID, postId: UUID, reactionType: String) {
         userRepository.reactToPost(postId, userId, reactionType).enqueue(object : Callback<PostResponse> {
             override fun onResponse(call: Call<PostResponse>, response: Response<PostResponse>) {
                 val updatedPost = response.body()
                 if (response.isSuccessful && updatedPost != null) {
                     if (uiState is GeneralUiState.Success) {
-                        val currentPosts = (uiState as GeneralUiState.Success).posts
                         // Map the list and replace the old post object with the new one
                         val newPosts = currentPosts.map { post ->
                             if (post.id == postId) updatedPost else post
                         }
+                        currentPosts = newPosts // Update the private list
                         uiState = GeneralUiState.Success(newPosts)
                     }
                 } else {
