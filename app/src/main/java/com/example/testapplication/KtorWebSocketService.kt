@@ -50,7 +50,7 @@ class KtorWebSocketService(private val context: Context) {
         try {
             client.webSocket(
                 method = HttpMethod.Get,
-                host = "172.17.3.216", // Your confirmed server IP
+                host = "10.216.235.210", // Your confirmed server IP
                 port = 8000,
                 path = "/api/v3/messages/ws/$userId"
             ) {
