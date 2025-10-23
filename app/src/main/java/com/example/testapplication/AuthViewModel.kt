@@ -42,7 +42,7 @@ class AuthViewModel(private val sessionManager: SessionManager) : ViewModel() {
                     viewModelScope.launch {
                         sessionManager.saveUserId(result.userId)
                         sessionManager.setLoggedIn(true)
-                        // Save the admin status here
+                        // Save the admin status here (essential for the Admin crash fix)
                         sessionManager.setAdminStatus(result.isAdmin ?: false)
                     }
                 }

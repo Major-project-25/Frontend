@@ -26,6 +26,14 @@ class EditProfileViewModel : ViewModel() {
     var uiState: EditProfileUiState by mutableStateOf(EditProfileUiState.Loading)
         private set
 
+    // REQUIRED CHANGE: Define the full list of predefined interests here
+    val predefinedInterests = listOf(
+        "None", "AIML", "Data Science", "Natural Language Processing",
+        "Prompt Engineering", "Agent Building", "Web Development", "App Development",
+        "Flutter", "Python Coding", "Fintech", "Trading", "Venture Capital (VC)",
+        "Hackathon", "Collaboration", "Vibe Coding", "UI/UX Design", "Poetry"
+    )
+
     // State for the editable fields
     var bio by mutableStateOf("")
     var interests by mutableStateOf(

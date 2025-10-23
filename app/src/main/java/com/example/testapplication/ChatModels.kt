@@ -9,10 +9,14 @@ enum class MessageAuthor {
 
 // Represents a single chat message
 data class Message(
-    val id: UUID = UUID.randomUUID(),
-    val text: String,
+    // CRITICAL FIX: Change ID type from UUID to Long, and give it a dummy default value
+    // (UUID.randomUUID().mostSignificantBits is a common way to get a unique Long)
+    val id: Long = 0,
+    val text: String?,
     val author: MessageAuthor,
     val authorId: UUID,
-    val timestamp: String, // e.g., "10:10"
-    val date: String? = null // e.g., "Fri, Jul 26"
+    val timestamp: String,
+    val date: String? = null,
+    val mediaUrl: String? = null,
+    val messageType: String = "text"
 )

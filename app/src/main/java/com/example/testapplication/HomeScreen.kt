@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun HomeScreen(
@@ -138,6 +140,7 @@ fun HomeTopBar(navController: NavController) {
 
 @Composable
 fun EmptyChatView(modifier: Modifier = Modifier, navController: NavController) {
+    val context = LocalContext.current
     Column(
         modifier = modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -146,11 +149,21 @@ fun EmptyChatView(modifier: Modifier = Modifier, navController: NavController) {
         Text("Empty chat", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
         Spacer(modifier = Modifier.height(16.dp))
         Button(
-            onClick = { navController.navigate("network") },
+            onClick = {
+                // STEP 1: Show the motivating Toast
+                Toast.makeText(
+                    context,
+                    "Ready to connect? Your matches are waiting in the network page!\uD83D\uDE0A", // Motivational message
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                // STEP 2: Navigate to the network page after the Toast
+                //navController.navigate("network")
+            },
             shape = RoundedCornerShape(50),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
         ) {
-            Text("Network", modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp), fontSize = 16.sp)
+            Text("Guide", modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp), fontSize = 16.sp)
         }
     }
 }

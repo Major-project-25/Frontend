@@ -71,9 +71,6 @@ data class UserProfile(
     val interest3: String?
 )
 
-// In ApiDataModels.kt
-
-// ADD THIS CLASS
 data class PendingRequestDetail(
     @SerializedName("requester_id")
     val requesterId: UUID,
@@ -94,7 +91,6 @@ data class PendingRequestDetail(
     val interest3: String?
 )
 
-// ADD THIS CLASS
 data class ConnectionUpdate(
     @SerializedName("requester_id")
     val requesterId: UUID,
@@ -137,17 +133,19 @@ data class GetFullProfile(
     val interest3Weight: Int?
 )
 
-// In ApiDataModels.kt
-
-// For sending a new message
+// For sending a new message - UPDATED
 data class MessageCreate(
     @SerializedName("receiver_id")
     val receiverId: UUID,
     @SerializedName("content")
-    val content: String
+    val content: String? = null, // MADE NULLABLE
+    @SerializedName("media_url")
+    val mediaUrl: String? = null,
+    @SerializedName("message_type")
+    val messageType: String = "text"
 )
 
-// For receiving a message's details
+// For receiving a message's details - UPDATED
 data class MessageResponse(
     @SerializedName("id")
     val id: Long,
@@ -156,7 +154,11 @@ data class MessageResponse(
     @SerializedName("receiver_id")
     val receiverId: UUID,
     @SerializedName("content")
-    val content: String,
+    val content: String?, // MADE NULLABLE
+    @SerializedName("media_url")
+    val mediaUrl: String?,
+    @SerializedName("message_type")
+    val messageType: String,
     @SerializedName("timestamp")
     val timestamp: String // Using String for simplicity
 )
@@ -170,16 +172,33 @@ data class FriendDetail(
     val name: String?
 )
 
+data class ReactionCreate(
+    @SerializedName("reaction_type")
+    val reactionType: String // Can be "like", "dislike", or "none"
+)
+
 data class PostResponse(
     val id: UUID,
     val content: String?,
     val media_url: String?,
     val content_type: String,
     val created_at: String, // Using String for simplicity
-    val author_id: UUID
+    val author_id: UUID,
+    // --- NEW FIELDS FROM BACKEND ---
+    val likes: Int, // Total number of likes
+    val dislikes: Int, // Total number of dislikes
+    @SerializedName("user_reaction")
+    val userReaction: String? // "like", "dislike", or null
 )
 data class MeetLinkResponse(
     @SerializedName("meet_link")
     val meetLink: String
 )
+
+// NEW CLASS for media upload response
+data class MediaUploadResponse(
+    @SerializedName("media_url")
+    val mediaUrl: String
+)
+
 

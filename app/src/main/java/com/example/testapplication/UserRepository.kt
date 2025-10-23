@@ -1,5 +1,6 @@
 package com.example.testapplication
 
+import okhttp3.MultipartBody
 import retrofit2.Call
 import java.util.UUID
 
@@ -20,7 +21,6 @@ class UserRepository(private val apiService: ApiService) {
         return apiService.getMatches(userId)
     }
 
-    // ADD THIS FUNCTION
     fun getUserFullProfile(userId: UUID): Call<GetFullProfile> {
         return apiService.getUserFullProfile(userId)
     }
@@ -29,21 +29,14 @@ class UserRepository(private val apiService: ApiService) {
         return apiService.getUserProfile(userId)
     }
 
-    // ADD THIS FUNCTION
     fun sendConnectionRequest(requesterId: UUID, requestBody: ConnectionRequest): Call<StatusResponse> {
         return apiService.sendConnectionRequest(requesterId, requestBody)
     }
 
-    // In UserRepository.kt
-
-// ... (keep all existing functions)
-
-    // ADD THIS FUNCTION
     fun getPendingRequests(userId: UUID): Call<List<PendingRequestDetail>> {
         return apiService.getPendingRequests(userId)
     }
 
-    // ADD THIS FUNCTION
     fun respondToRequest(userId: UUID, response: ConnectionUpdate): Call<Unit> {
         return apiService.respondToRequest(userId, response)
     }
@@ -59,13 +52,31 @@ class UserRepository(private val apiService: ApiService) {
     fun getConversationHistory(userId: UUID, otherUserId: UUID): Call<List<MessageResponse>> {
         return apiService.getConversationHistory(userId, otherUserId)
     }
-    fun getAllPosts(): Call<List<PostResponse>> {
-        return apiService.getAllPosts()
+
+    fun uploadMediaFile(filePart: MultipartBody.Part): Call<MediaUploadResponse> {
+        return apiService.uploadMediaFile(filePart)
+    }
+
+    fun getAllPosts(userId: UUID): Call<List<PostResponse>> {
+        return apiService.getAllPosts(userId)
+    }
+
+    // NEW FUNCTION
+    fun deletePost(adminId: UUID, postId: UUID): Call<Unit> {
+        return apiService.deletePost(adminId, postId)
     }
 
     fun getVideoCallLink(userId: UUID, otherUserId: UUID): Call<MeetLinkResponse> {
         return apiService.getVideoCallLink(userId, otherUserId)
     }
 
+    fun reactToPost(postId: UUID, userId: UUID, reactionType: String): Call<PostResponse> {
+        val reaction = ReactionCreate(reactionType = reactionType)
+        return apiService.reactToPost(postId, userId, reaction)
+    }
+
+    fun deleteChatMessage(messageId: Long, userId: UUID): Call<Unit> {
+        return apiService.deleteChatMessage(messageId, userId)
+    }
 
 }

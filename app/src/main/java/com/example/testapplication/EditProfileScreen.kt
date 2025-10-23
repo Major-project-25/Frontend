@@ -159,10 +159,23 @@ fun EditProfileScreen(
                             .horizontalScroll(rememberScrollState())
                     ) {
                         editViewModel.interests.forEachIndexed { index, interest ->
+
+                            // REQUIRED CHANGE: Implement correct filtering logic
+                            // Step 1: Identify interests currently used in OTHER slots (index != i)
+                            val interestsInUse = editViewModel.interests
+                                .filterIndexed { i, _ -> i != index }
+                                .map { it.name }
+
+                            // Step 2: Filter the master list (predefinedInterests)
+                            val filteredAvailableInterests = editViewModel.predefinedInterests.filter { interestName ->
+                                // Allow 'None', OR allow any interest that is NOT in the 'interestsInUse' list.
+                                interestName == "None" || !interestsInUse.contains(interestName)
+                            }
+
                             Box(modifier = Modifier.width(280.dp)) {
                                 InterestDropdownAndSlider(
-                                    // You would need to pass in your predefined list of interests here
-                                    availableInterests = listOf("Web Development", "AI/ML", "Data Science", "Trading", "None"),
+                                    // Use the full filtered list
+                                    availableInterests = filteredAvailableInterests,
                                     selectedInterest = interest,
                                     onInterestChange = { newInterest ->
                                         val newInterests = editViewModel.interests.toMutableList()
