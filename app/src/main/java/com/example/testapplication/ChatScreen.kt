@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Videocam
+// REMOVED: Audiotrack and Description icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,12 +31,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+// REMOVED: ImageVector import
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+// REMOVED: TextOverflow import
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -51,10 +54,8 @@ import java.net.URLEncoder
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.ExperimentalFoundationApi
 
-// Define the custom color here for reuse
 private val BubblesBlue = Color(0xFFE5F3FD)
 
-// CRITICAL ANNOTATION to allow use of Experimental APIs
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatScreen(
@@ -77,8 +78,9 @@ fun ChatScreen(
 
     var unreadCount by remember { mutableIntStateOf(0) }
 
-    // Launcher for picking an image or video
+    // --- REVERTED LAUNCHER ---
     val filePickerLauncher = rememberLauncherForActivityResult(
+        // Back to image and video only
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
@@ -89,21 +91,23 @@ fun ChatScreen(
             }
 
             val mimeType = context.contentResolver.getType(it) ?: "application/octet-stream"
-            // FIX: Mark 'file' as unused to eliminate linter warning
+
             @Suppress("UNUSED_VARIABLE")
             val file = context.contentResolver.getFile(context, it)
 
+            // Determine the messageType based on the MIME type
             val messageType = when {
                 mimeType.startsWith("image/") -> "image"
                 mimeType.startsWith("video/") -> "video"
-                else -> "file"
+                // REMOVED: Audio and File cases
+                else -> "file" // Default, though shouldn't happen with this launcher
             }
 
             chatViewModel.sendMediaMessage(currentUserId, friendId, it, mimeType, messageType)
             unreadCount = 0
         }
     }
-    // --- END NEW LAUNCHER ---
+    // --- END REVERTED LAUNCHER ---
 
     LaunchedEffect(userId, friendId) {
         userId?.let {
@@ -111,7 +115,6 @@ fun ChatScreen(
         }
     }
 
-    // Display Moderation Warning (omitted for brevity)
     LaunchedEffect(uiState.moderationWarning) {
         uiState.moderationWarning?.let { warning ->
             coroutineScope.launch {
@@ -124,7 +127,6 @@ fun ChatScreen(
         }
     }
 
-    // Scroll to bottom immediately when a new message arrives (omitted for brevity)
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             coroutineScope.launch {
@@ -134,7 +136,6 @@ fun ChatScreen(
         }
     }
 
-    // Reset unread count when the user scrolls to the bottom (omitted for brevity)
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { firstVisibleIndex ->
@@ -176,6 +177,7 @@ fun ChatScreen(
                     }
                 },
                 onPlusClick = {
+                    // Back to image/video only
                     filePickerLauncher.launch("image/*,video/*")
                 }
             )
@@ -207,17 +209,15 @@ fun ChatScreen(
                     reverseLayout = true
                 ) {
                     items(messages.reversed()) { message ->
-                        // Pass the delete function down to the menu composable
                         MessageBubbleWithMenu(
                             message = message,
                             onMediaClick = { mediaUrl ->
+                                // Only image/video are possible now
                                 val encodedUrl = URLEncoder.encode(mediaUrl, "UTF-8")
                                 navController.navigate("media_viewer/$encodedUrl")
                             },
-                            // CRITICAL FIX: Ensure lambda parameter is explicitly Long
                             onDelete = { messageId: Long ->
                                 userId?.let {
-                                    // This is the call on line 345
                                     chatViewModel.deleteMessage(messageId, it)
                                 }
                             }
@@ -227,7 +227,6 @@ fun ChatScreen(
                 }
             }
 
-            // Floating Button/Badge for Manual Scroll (omitted for brevity)
             if (unreadCount > 0) {
                 FloatingActionButton(
                     onClick = {
@@ -257,7 +256,6 @@ fun ChatScreen(
     }
 }
 
-// CRITICAL FIX: The onDelete lambda now correctly expects a Long
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDelete: (Long) -> Unit) {
@@ -276,7 +274,6 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
         horizontalArrangement = horizontalArrangement,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Kebab menu for THEM (left side) - Only shows timestamp option
         if (!isMyMessage) {
             AnimatedVisibility(
                 visible = showMenuIcon,
@@ -303,7 +300,6 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
             }
         }
 
-        // Message Bubble itself
         MessageBubbleContent(
             message = message,
             onMediaClick = onMediaClick,
@@ -314,7 +310,6 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
             }
         )
 
-        // Kebab menu for ME (right side) - Shows Delete option
         if (isMyMessage) {
             AnimatedVisibility(
                 visible = showMenuIcon,
@@ -332,21 +327,16 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
                         expanded = showTimestampMenu,
                         onDismissRequest = { showTimestampMenu = false }
                     ) {
-                        // Option 1: View Timestamp
                         DropdownMenuItem(
                             text = { Text("Sent: ${message.timestamp}") },
                             onClick = { showTimestampMenu = false }
                         )
-
-                        // Separator
                         HorizontalDivider()
-
-                        // Option 2: Delete Message
                         if (canDelete) {
                             DropdownMenuItem(
                                 text = { Text("Delete Message", color = MaterialTheme.colorScheme.error) },
                                 onClick = {
-                                    onDelete(message.id) // message.id is guaranteed Long
+                                    onDelete(message.id)
                                     showTimestampMenu = false
                                 }
                             )
@@ -358,6 +348,7 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
     }
 }
 
+// --- REVERTED COMPOSABLE ---
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubbleContent(
@@ -374,39 +365,43 @@ fun MessageBubbleContent(
         RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp)
     }
 
+    val isClickable = message.messageType != "text"
+
     Box(
         modifier = Modifier
             .clip(shape)
             .background(bubbleColor)
             .combinedClickable(
-                onClick = onBubbleClick,
+                onClick = {
+                    if (isClickable && message.mediaUrl != null) {
+                        onMediaClick(message.mediaUrl)
+                    } else {
+                        onBubbleClick()
+                    }
+                },
                 onLongClick = onBubbleLongPress
             )
             .widthIn(max = 280.dp) // Max width constraint
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
 
-            // 1. Display media if present
-            if (message.mediaUrl != null && message.messageType != "text") {
+            // Display media if present (image or video)
+            if (message.mediaUrl != null && (message.messageType == "image" || message.messageType == "video")) {
                 AsyncImage(
                     model = message.mediaUrl,
-                    contentDescription = "${message.messageType} attachment",
+                    contentDescription = "Attachment",
                     modifier = Modifier
                         .size(200.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            message.mediaUrl?.let { onMediaClick(it) }
-                        },
+                        .clip(RoundedCornerShape(8.dp)),
                     contentScale = ContentScale.Crop,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
             }
 
-            // 2. Text Content (Only)
-            if (!message.text.isNullOrBlank()) {
-                // FIX: Remove redundant non-null assertion on non-null receiver (String)
+            // Text Content (Only if messageType is 'text')
+            if (message.messageType == "text" && !message.text.isNullOrBlank()) {
                 Text(
-                    text = message.text!!,
+                    text = message.text, // Safe non-null assertion removed
                     color = Color.Black,
                     fontSize = 16.sp,
                     modifier = Modifier.wrapContentWidth(Alignment.Start)
@@ -415,6 +410,9 @@ fun MessageBubbleContent(
         }
     }
 }
+// --- END REVERTED COMPOSABLE ---
+
+// REMOVED: FileAttachmentBubble composable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -442,7 +440,6 @@ fun FullScreenMediaViewer(navController: NavController, mediaUrl: String) {
     }
 }
 
-// Core logic for image pan and zoom
 @Composable
 fun ZoomableImage(mediaUrl: String) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -499,7 +496,6 @@ fun ChatTopBar(
     friendName: String,
     onVideoCallClick: () -> Unit
 ) {
-    // START CHANGE: Apply BubblesBlue to TopAppBar
     TopAppBar(
         title = {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -519,23 +515,21 @@ fun ChatTopBar(
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = BubblesBlue, // Light Blue Background
+            containerColor = BubblesBlue,
             titleContentColor = Color.Black,
             navigationIconContentColor = Color.Black,
             actionIconContentColor = Color.Black
         )
     )
-    // END CHANGE
 }
 
 @Composable
 fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
     var text by remember { mutableStateOf("") }
 
-    // START CHANGE: Apply BubblesBlue to the Surface and TextField background
     Surface(
         shadowElevation = 8.dp,
-        color = BubblesBlue // Light Blue Background
+        color = BubblesBlue
     ) {
         Row(
             modifier = Modifier
@@ -553,8 +547,8 @@ fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
                 placeholder = { Text("Message...") },
                 shape = RoundedCornerShape(24.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.White, // Ensures the input field itself is white
-                    unfocusedContainerColor = Color.White, // Ensures the input field itself is white
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
                     disabledContainerColor = Color.White,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent
@@ -570,5 +564,4 @@ fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
             }
         }
     }
-    // END CHANGE
 }

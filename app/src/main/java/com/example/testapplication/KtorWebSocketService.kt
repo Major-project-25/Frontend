@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.util.*
 
 data class ChatWarning(val message: String)
@@ -19,7 +20,7 @@ enum class ConnectionStatus {
     DISCONNECTED, CONNECTING, CONNECTED, FAILED
 }
 
-class KtorWebSocketService(private val context: Context) {
+object KtorWebSocketService {
     private val client = HttpClient(CIO) {
         install(WebSockets) {
             pingInterval = 20_000
@@ -28,19 +29,28 @@ class KtorWebSocketService(private val context: Context) {
     private val gson = Gson()
     private var session: DefaultClientWebSocketSession? = null
 
+    private var appContext: Context? = null
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
     private val _messages = MutableSharedFlow<MessageResponse>(replay = 1)
     val messages = _messages.asSharedFlow()
 
     private val _warnings = MutableSharedFlow<ChatWarning>(replay = 1)
     val warnings = _warnings.asSharedFlow()
 
-    // --- NEW: Deletion Event Flow ---
     private val _deletionEvents = MutableSharedFlow<Long>(replay = 0)
     val deletionEvents = _deletionEvents.asSharedFlow()
-    // -----------------------------------
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus = _connectionStatus.asStateFlow()
+
+    private val _currentActiveChatId = MutableStateFlow<UUID?>(null)
+
+    private val _unreadCounts = MutableStateFlow<Map<UUID, Int>>(emptyMap())
+    val unreadCounts = _unreadCounts.asStateFlow() // This remains a read-only StateFlow
+
 
     suspend fun connect(userId: UUID) {
         if (_connectionStatus.value == ConnectionStatus.CONNECTED || _connectionStatus.value == ConnectionStatus.CONNECTING) {
@@ -50,7 +60,7 @@ class KtorWebSocketService(private val context: Context) {
         try {
             client.webSocket(
                 method = HttpMethod.Get,
-                host = "10.216.235.210", // Your confirmed server IP
+                host = "172.17.0.176",
                 port = 8000,
                 path = "/api/v3/messages/ws/$userId"
             ) {
@@ -69,22 +79,36 @@ class KtorWebSocketService(private val context: Context) {
                                 "video_call_invitation" -> {
                                     val callerName = jsonObject["caller_name"] as String
                                     val meetLink = jsonObject["meet_link"] as String
-                                    NotificationService.showVideoCallNotification(context, callerName, meetLink)
+
+                                    appContext?.let {
+                                        NotificationService.showVideoCallNotification(it, callerName, meetLink)
+                                    }
                                 }
                                 "moderation_warning" -> {
                                     val warningMessage = jsonObject["message"] as String
                                     _warnings.emit(ChatWarning(warningMessage))
                                 }
-                                "message_deleted" -> { // <-- NEW CASE: Handles the deletion notification
-                                    // Message IDs often come back as Doubles from generic JSON parsing
+                                "message_deleted" -> {
                                     val messageId = (jsonObject["message_id"] as? Double)?.toLong()
                                     if (messageId != null) {
-                                        _deletionEvents.emit(messageId) // Notify the ViewModel to remove the message
+                                        _deletionEvents.emit(messageId)
                                     }
                                 }
                                 else -> {
                                     val message = gson.fromJson(text, MessageResponse::class.java)
                                     _messages.emit(message)
+
+                                    val isUnread = message.senderId != _currentActiveChatId.value
+                                    val isFromOtherUser = message.senderId != userId
+
+                                    if (isUnread && isFromOtherUser) {
+                                        _unreadCounts.update { currentMap ->
+                                            val newMap = currentMap.toMutableMap()
+                                            val currentCount = newMap[message.senderId] ?: 0
+                                            newMap[message.senderId] = currentCount + 1
+                                            newMap
+                                        }
+                                    }
                                 }
                             }
                         } catch (e: JsonSyntaxException) {
@@ -114,5 +138,37 @@ class KtorWebSocketService(private val context: Context) {
 
     suspend fun disconnect() {
         session?.close()
+        _unreadCounts.value = emptyMap()
+        _currentActiveChatId.value = null
     }
+
+    fun setCurrentActiveChat(chatId: UUID?) {
+        _currentActiveChatId.value = chatId
+    }
+
+    fun clearUnreadCountFor(chatId: UUID) {
+        _unreadCounts.update { currentMap ->
+            val newMap = currentMap.toMutableMap()
+            if (newMap.containsKey(chatId)) {
+                newMap[chatId] = 0
+            }
+            newMap
+        }
+    }
+
+    // --- NEW PUBLIC FUNCTION ---
+    /**
+     * Merges the initial unread counts from the API with the current
+     * counts from the WebSocket.
+     */
+    fun mergeInitialCounts(initialCounts: Map<UUID, Int>) {
+        _unreadCounts.update { currentWebSocketCounts ->
+            val newMap = initialCounts.toMutableMap()
+            // Merge by overwriting API counts with any *newer* WebSocket counts
+            // This ensures we keep any real-time counts received *during* the API call
+            newMap.putAll(currentWebSocketCounts)
+            newMap
+        }
+    }
+    // --- END NEW FUNCTION ---
 }

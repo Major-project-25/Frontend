@@ -55,7 +55,8 @@ import androidx.core.content.ContextCompat
 import java.util.*
 import java.net.URLDecoder
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.ExitToApp // Added for Logout
+// --- FIX: Import the correct AutoMirrored icon ---
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
@@ -72,6 +73,10 @@ import com.example.testapplication.WelcomeScreen
 import com.example.testapplication.AdminHostScreen
 import kotlin.math.roundToInt
 
+// --- NEW ---
+// Import the global WebSocket service
+import com.example.testapplication.KtorWebSocketService
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,6 +88,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         NotificationService.createNotificationChannel(this)
+
+        // --- NEW ---
+        // Initialize the singleton service with the application context
+        KtorWebSocketService.init(applicationContext)
+
         setContent {
             TestapplicationTheme {
                 Surface(
@@ -105,27 +115,46 @@ fun AppNavigation() {
     val isLoggedIn by sessionManager.isLoggedInFlow.collectAsState(initial = false)
     val isAdmin by sessionManager.isAdminFlow.collectAsState(initial = false)
 
+    // --- NEW ---
+    // Get the userId flow to manage the WebSocket connection
+    val userId by sessionManager.getUserIdFlow.collectAsState(initial = null)
+    val coroutineScope = rememberCoroutineScope()
+
+    // --- NEW ---
+    // This LaunchedEffect manages the WebSocket connection for the *entire app*.
+    LaunchedEffect(isLoggedIn, userId) {
+        // --- FIX: Store the delegated property in a local val ---
+        val currentUserId = userId
+
+        if (isLoggedIn && currentUserId != null) {
+            // User is logged in, connect the WebSocket
+            coroutineScope.launch {
+                KtorWebSocketService.connect(currentUserId)
+            }
+        } else {
+            // User is logged out, disconnect the WebSocket
+            coroutineScope.launch {
+                KtorWebSocketService.disconnect()
+            }
+        }
+    }
+    // --- END NEW / END FIX ---
+
     val startDestination = when {
         isLoggedIn && isAdmin -> "admin_home"
         isLoggedIn && !isAdmin -> "home"
         else -> "splash"
     }
 
-    // FIX: Simplified the top-level logic to use a single NavHost
-    // We will handle the different UIs (Admin vs Student) inside the Scaffold/NavHost structure below.
-
-    // We must define the Student's navigation graph first for the BottomBar check
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
     val screensWithStudentBottomBar = listOf("home", "network", "general_interface", "profile")
 
-    // The student's bottom bar logic goes here.
     Scaffold(
         bottomBar = {
             if (currentRoute in screensWithStudentBottomBar) {
                 BottomNavigationBar(navController = navController)
             }
-            // Admin navigation has its own Scaffold/BottomBar via AdminHostScreen
         }
     ) { innerPadding ->
         NavHost(
@@ -221,7 +250,6 @@ fun AppNavigation() {
             }
 
             // --- Admin Top-Level Route ---
-            // The destination for admin_home is now the new Host Screen with the bottom tabs
             composable("admin_home") {
                 AdminHostScreen(navController = navController)
             }
@@ -229,8 +257,6 @@ fun AppNavigation() {
     }
 }
 
-// REMOVED AdminNavigation and StudentNavigation functions as they are consolidated above.
-// The code below defines the new AdminHostScreen.
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -272,7 +298,8 @@ fun AdminHostScreen(navController: NavHostController) {
                             }
                         }
                     }) {
-                        Icon(Icons.Default.ExitToApp, contentDescription = "Logout")
+                        // --- FIX: Use the non-deprecated AutoMirrored version ---
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout")
                     }
                 }
             )
@@ -303,11 +330,9 @@ fun AdminHostScreen(navController: NavHostController) {
             startDestination = "admin_create",
             modifier = Modifier.padding(innerPadding)
         ) {
-            // Note: AdminCreatePostScreen is the new name for AdminGeneralInterfaceScreen
             composable("admin_create") { AdminCreatePostScreen(navController = navController) }
             composable("admin_feed") { GeneralInterfaceScreen(navController = navController) }
 
-            // Route to Post Details (Navigates using the OUTER navController)
             composable(
                 route = "post_detail/{postId}",
                 arguments = listOf(navArgument("postId") {
@@ -411,19 +436,18 @@ fun SignInScreen(navController: NavController, viewModel: AuthViewModel) {
         authResult?.let { result ->
             if (result.isValid) {
                 if (result.isAdmin == true) {
-                    // Navigate to the new Admin Host screen
                     navController.navigate("admin_home") {
                         popUpTo("signin") { inclusive = true }
                     }
                 } else {
-                    // Navigate to the regular student home flow
                     if (result.userId != null) {
                         navController.navigate("home") {
                             popUpTo("signin") { inclusive = true }
                         }
                     }
                 }
-            } else if (result.isValid == false) {
+                // --- FIX: Replaced redundant 'else if' with 'else' ---
+            } else {
                 Toast.makeText(context, "Invalid email or password.", Toast.LENGTH_SHORT).show()
             }
             viewModel.clearResult()
@@ -446,73 +470,72 @@ fun SignInScreen(navController: NavController, viewModel: AuthViewModel) {
     }
 }
 
-// FIX 2: Implement the functional SignUpScreen logic
-    @Composable
-    fun SignUpScreen(navController: NavController, viewModel: AuthViewModel) {
-        var email by remember { mutableStateOf("") }
-        var password by remember { mutableStateOf("") }
-        var confirmPassword by remember { mutableStateOf("") }
-        val context = LocalContext.current
-        val authResult by viewModel.authResult.collectAsState()
+@Composable
+fun SignUpScreen(navController: NavController, viewModel: AuthViewModel) {
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val authResult by viewModel.authResult.collectAsState()
 
-        LaunchedEffect(authResult) {
-            authResult?.let { result ->
-                if (result.isValid && result.userId != null) {
-                    Toast.makeText(context, "Sign up successful!", Toast.LENGTH_SHORT).show()
-                    navController.navigate("account_setup/${result.userId}") {
-                        popUpTo("welcome") { inclusive = false }
-                    }
-                } else {
-                    Toast.makeText(context, "Sign up failed. Email may already exist.", Toast.LENGTH_SHORT).show()
+    LaunchedEffect(authResult) {
+        authResult?.let { result ->
+            if (result.isValid && result.userId != null) {
+                Toast.makeText(context, "Sign up successful!", Toast.LENGTH_SHORT).show()
+                navController.navigate("account_setup/${result.userId}") {
+                    popUpTo("welcome") { inclusive = false }
                 }
-                viewModel.clearResult()
+            } else {
+                Toast.makeText(context, "Sign up failed. Email may already exist.", Toast.LENGTH_SHORT).show()
             }
-        }
-
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            KycLogo()
-            Text("Sign up", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(48.dp))
-            OutlinedTextField(
-                value = email, onValueChange = { email = it }, label = { Text("Email") },
-                placeholder = { Text("college email id") }, modifier = Modifier.fillMaxWidth(),
-                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = password, onValueChange = { password = it }, label = { Text("Password") },
-                modifier = Modifier.fillMaxWidth(), singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            OutlinedTextField(
-                value = confirmPassword, onValueChange = { confirmPassword = it },
-                label = { Text("Confirm Password") }, modifier = Modifier.fillMaxWidth(),
-                singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
-            )
-            Spacer(modifier = Modifier.height(32.dp))
-            Button(
-                onClick = {
-                    if (email.isBlank() || password.isBlank() || confirmPassword.isBlank()) {
-                        Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
-                    } else if (password != confirmPassword) {
-                        Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
-                    } else {
-                        viewModel.signUpUser(UserCreate(email, password))
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
-            ) {
-                Text("Next", modifier = Modifier.padding(vertical = 8.dp))
-            }
+            viewModel.clearResult()
         }
     }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        KycLogo()
+        Text("Sign up", fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(48.dp))
+        OutlinedTextField(
+            value = email, onValueChange = { email = it }, label = { Text("Email") },
+            placeholder = { Text("college email id") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = password, onValueChange = { password = it }, label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth(), singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        OutlinedTextField(
+            value = confirmPassword, onValueChange = { confirmPassword = it },
+            label = { Text("Confirm Password") }, modifier = Modifier.fillMaxWidth(),
+            singleLine = true, visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+        )
+        Spacer(modifier = Modifier.height(32.dp))
+        Button(
+            onClick = {
+                if (email.isBlank() || password.isBlank() || confirmPassword.isBlank()) {
+                    Toast.makeText(context, "Please fill in all fields", Toast.LENGTH_SHORT).show()
+                } else if (password != confirmPassword) {
+                    Toast.makeText(context, "Passwords do not match", Toast.LENGTH_SHORT).show()
+                } else {
+                    viewModel.signUpUser(UserCreate(email, password))
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0077FF))
+        ) {
+            Text("Next", modifier = Modifier.padding(vertical = 8.dp))
+        }
+    }
+}
 
 @Composable
 fun SetupAccountScreen(navController: NavController, userId: UUID) {
@@ -538,13 +561,6 @@ fun SetupAccountScreen(navController: NavController, userId: UUID) {
         }
     }
 }
-
-//@Composable
-//fun ProfileSetupScreen(navController: NavController, viewModel: ProfileSetupViewModel, sessionManager: SessionManager, userId: UUID) {
-//    Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-//        Text("Setup Profile", fontSize = 28.sp, fontWeight = FontWeight.Bold)
-//    }
-//}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -666,89 +682,9 @@ fun ProfileSetupScreen(
 }
 
 
+// --- FIX: Removed unused OrDivider function ---
 
-@Composable
-fun OrDivider() {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center
-    ) {
-        HorizontalDivider(modifier = Modifier.weight(1f))
-        Text("or", modifier = Modifier.padding(horizontal = 8.dp), color = Color.Gray)
-        HorizontalDivider(modifier = Modifier.weight(1f))
-    }
-}
-
-//@OptIn(ExperimentalMaterial3Api::class)
-//@Composable
-//fun InterestDropdownAndSlider(
-//    availableInterests: List<String>,
-//    selectedInterest: Interest,
-//    onInterestChange: (Interest) -> Unit
-//) {
-//    var isExpanded by remember { mutableStateOf(false) }
-//
-//    Card(
-//        modifier = Modifier.padding(vertical = 16.dp, horizontal = 8.dp),
-//        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-//    ) {
-//        Column(modifier = Modifier.padding(16.dp)) {
-//            ExposedDropdownMenuBox(
-//                expanded = isExpanded,
-//                onExpandedChange = { isExpanded = it }
-//            ) {
-//                OutlinedTextField(
-//                    value = selectedInterest.name,
-//                    onValueChange = {},
-//                    readOnly = true,
-//                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isExpanded) },
-//                    modifier = Modifier.fillMaxWidth().menuAnchor(),
-//                    colors = TextFieldDefaults.colors(
-//                        focusedContainerColor = Color.Transparent,
-//                        unfocusedContainerColor = Color.Transparent,
-//                    )
-//                )
-//
-//                ExposedDropdownMenu(
-//                    expanded = isExpanded,
-//                    onDismissRequest = { isExpanded = false }
-//                ) {
-//                    availableInterests.forEach { interestName ->
-//                        DropdownMenuItem(
-//                            text = { Text(interestName) },
-//                            onClick = {
-//                                val newRating = if (interestName == "None") 0 else selectedInterest.rating
-//                                onInterestChange(Interest(name = interestName, rating = newRating))
-//                                isExpanded = false
-//                            }
-//                        )
-//                    }
-//                }
-//            }
-//
-//            Spacer(modifier = Modifier.height(8.dp))
-//
-//            Row(verticalAlignment = Alignment.CenterVertically) {
-//                Slider(
-//                    value = selectedInterest.rating.toFloat(),
-//                    onValueChange = {
-//                        onInterestChange(selectedInterest.copy(rating = it.roundToInt()))
-//                    },
-//                    valueRange = 0f..10f,
-//                    steps = 9,
-//                    modifier = Modifier.weight(1f),
-//                    enabled = selectedInterest.name != "None"
-//                )
-//                Text(
-//                    text = selectedInterest.rating.toString(),
-//                    fontWeight = FontWeight.Bold,
-//                    modifier = Modifier.padding(start = 16.dp)
-//                )
-//            }
-//        }
-//    }
-//}
+// --- FIX: Removed commented-out InterestDropdownAndSlider ---
 
 
 @Preview(showBackground = true)

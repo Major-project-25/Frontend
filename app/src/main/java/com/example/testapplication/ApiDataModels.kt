@@ -163,14 +163,21 @@ data class MessageResponse(
     val timestamp: String // Using String for simplicity
 )
 
+// --- THIS CLASS IS THE ONLY ONE THAT CHANGED ---
 data class FriendDetail(
     @SerializedName("user_id")
     val userId: UUID,
     @SerializedName("university_reg_no")
     val universityRegNo: String?,
     @SerializedName("name")
-    val name: String?
+    val name: String?,
+
+    // --- NEW ---
+    // This field will now be populated from the API
+    @SerializedName("unread_count")
+    val unread_count: Int?
 )
+// --- END OF CHANGE ---
 
 data class ReactionCreate(
     @SerializedName("reaction_type")
@@ -200,5 +207,3 @@ data class MediaUploadResponse(
     @SerializedName("media_url")
     val mediaUrl: String
 )
-
-

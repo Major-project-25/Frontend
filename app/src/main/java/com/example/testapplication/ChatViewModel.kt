@@ -32,15 +32,17 @@ data class ChatUiState(
 
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val userRepository = UserRepository(RetrofitInstance.api)
-    // Assumes KtorWebSocketService includes .warnings and .messages flows
-    private val ktorWebSocketService = KtorWebSocketService(application.applicationContext)
+
+    // --- CHANGED ---
+    // We no longer create a local KtorWebSocketService instance.
+    // We will reference the global 'KtorWebSocketService' object directly.
+    private val ktorWebSocketService = KtorWebSocketService
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState = _uiState.asStateFlow()
 
     private val appContext = application.applicationContext
 
-    // Store the chat metadata for resyncing after delete
     private var currentChatFriendId: UUID? = null
     private var currentChatUserId: UUID? = null
 
@@ -54,14 +56,31 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         currentChatUserId = currentUserId
         currentChatFriendId = friendId
 
+        // --- NEW ---
+        // 1. Tell the global service which chat is now active (to stop unread counts)
+        ktorWebSocketService.setCurrentActiveChat(friendId)
+
+        // 2. Clear the unread count for this specific chat
+        ktorWebSocketService.clearUnreadCountFor(friendId)
+        // --- END NEW ---
+
         // --- Setup WebSocket Listener for incoming messages (including echo) ---
         ktorWebSocketService.messages
             .onEach { messageResponse ->
                 // This block adds messages received from the server (including the sender's echo)
                 val uiMessage = messageResponse.toUiMessage(currentUserId)
-                _uiState.update { currentState ->
-                    currentState.copy(messages = currentState.messages + uiMessage, moderationWarning = null)
+
+                // --- NEW ---
+                // Only add the message if it belongs to this conversation
+                val isMyMessage = messageResponse.senderId == currentUserId && messageResponse.receiverId == friendId
+                val isTheirMessage = messageResponse.senderId == friendId && messageResponse.receiverId == currentUserId
+
+                if (isMyMessage || isTheirMessage) {
+                    _uiState.update { currentState ->
+                        currentState.copy(messages = currentState.messages + uiMessage, moderationWarning = null)
+                    }
                 }
+                // --- END NEW ---
             }
             .launchIn(viewModelScope)
 
@@ -85,10 +104,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             .launchIn(viewModelScope)
         // -----------------------------------------------------------------
 
-
-        viewModelScope.launch {
-            ktorWebSocketService.connect(currentUserId)
-        }
+        // --- REMOVED ---
+        // We no longer call connect() here. It's handled by MainActivity.
+        // viewModelScope.launch {
+        //     ktorWebSocketService.connect(currentUserId)
+        // }
 
         // Fetch the initial message history via HTTP
         fetchHistory(currentUserId, friendId)
@@ -194,9 +214,16 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        viewModelScope.launch {
-            ktorWebSocketService.disconnect()
-        }
+        // --- NEW ---
+        // Tell the global service that no chat is active anymore.
+        // This re-enables unread counts for this chat.
+        ktorWebSocketService.setCurrentActiveChat(null)
+
+        // --- REMOVED ---
+        // We no longer call disconnect() here.
+        // viewModelScope.launch {
+        //     ktorWebSocketService.disconnect()
+        // }
     }
 }
 

@@ -147,7 +147,7 @@ fun ZoomableMedia(mediaUrl: String) {
     val minScale = 1f
 
     // Construct the full URL (hardcoded IP for media viewing)
-    val fullUrl = "http://10.216.235.210:8000$mediaUrl" // IMPORTANT: Match your server IP here
+    val fullUrl = "http://172.17.0.176:8000$mediaUrl" // IMPORTANT: Match your server IP here
 
     Box(
         modifier = Modifier
