@@ -1,6 +1,7 @@
 package com.example.testapplication
 
 import android.content.Context
+import android.util.Log // --- NEW IMPORT ---
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import io.ktor.client.*
@@ -29,6 +30,9 @@ object KtorWebSocketService {
     private val gson = Gson()
     private var session: DefaultClientWebSocketSession? = null
 
+    // --- ADD A TAG FOR LOGGING ---
+    private const val TAG = "KtorWebSocketService"
+
     private var appContext: Context? = null
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -54,8 +58,10 @@ object KtorWebSocketService {
 
     suspend fun connect(userId: UUID) {
         if (_connectionStatus.value == ConnectionStatus.CONNECTED || _connectionStatus.value == ConnectionStatus.CONNECTING) {
+            Log.d(TAG, "Connect called, but already connected or connecting.")
             return
         }
+        Log.d(TAG, "Connecting with userId: $userId")
         _connectionStatus.value = ConnectionStatus.CONNECTING
         try {
             client.webSocket(
@@ -66,12 +72,13 @@ object KtorWebSocketService {
             ) {
                 session = this
                 _connectionStatus.value = ConnectionStatus.CONNECTED
-                println("Ktor WebSocket Connected!")
+                Log.d(TAG, "--- WebSocket Connected! ---") // <-- SUCCESS LOG
 
                 for (frame in incoming) {
                     if (frame is Frame.Text) {
                         val text = frame.readText()
-                        println("<<<--- RAW MESSAGE RECEIVED FROM SERVER: $text")
+                        // --- REMOVED THE OLD PRINTLN, REPLACED WITH LOG.D ---
+                        Log.d(TAG, "<<<--- RAW MESSAGE RECEIVED: $text")
 
                         try {
                             val jsonObject = gson.fromJson(text, Map::class.java)
@@ -112,18 +119,18 @@ object KtorWebSocketService {
                                 }
                             }
                         } catch (e: JsonSyntaxException) {
-                            println("!!! GSON PARSING FAILED: ${e.message}")
+                            Log.e(TAG, "!!! GSON PARSING FAILED: ${e.message}")
                         } catch (e: Exception) {
-                            println("!!! ERROR PROCESSING FRAME: ${e.message}")
+                            Log.e(TAG, "!!! ERROR PROCESSING FRAME: ${e.message}")
                         }
                     }
                 }
             }
         } catch (e: Exception) {
-            println("Ktor WebSocket Error: ${e.localizedMessage}")
+            Log.e(TAG, "Ktor WebSocket Error: ${e.localizedMessage}", e) // <-- DETAILED ERROR LOG
             _connectionStatus.value = ConnectionStatus.FAILED
         } finally {
-            println("Ktor WebSocket Disconnected.")
+            Log.d(TAG, "--- WebSocket Disconnected (Finally Block) ---") // <-- DISCONNECT LOG
             session = null
             if (_connectionStatus.value != ConnectionStatus.FAILED) {
                 _connectionStatus.value = ConnectionStatus.DISCONNECTED
@@ -133,10 +140,19 @@ object KtorWebSocketService {
 
     suspend fun sendMessage(message: MessageCreate) {
         val jsonMessage = gson.toJson(message)
-        session?.send(Frame.Text(jsonMessage))
+
+        // --- THIS IS THE KEY LOGIC TO CONFIRM OUR THEORY ---
+        if (session != null) {
+            Log.d(TAG, "---> SENDING MESSAGE: $jsonMessage")
+            session?.send(Frame.Text(jsonMessage))
+        } else {
+            Log.e(TAG, "!!! FAILED TO SEND: Session is null. WebSocket is disconnected.")
+        }
+        // --- END KEY LOGIC ---
     }
 
     suspend fun disconnect() {
+        Log.d(TAG, "Disconnect called manually.")
         session?.close()
         _unreadCounts.value = emptyMap()
         _currentActiveChatId.value = null
@@ -156,19 +172,11 @@ object KtorWebSocketService {
         }
     }
 
-    // --- NEW PUBLIC FUNCTION ---
-    /**
-     * Merges the initial unread counts from the API with the current
-     * counts from the WebSocket.
-     */
     fun mergeInitialCounts(initialCounts: Map<UUID, Int>) {
         _unreadCounts.update { currentWebSocketCounts ->
             val newMap = initialCounts.toMutableMap()
-            // Merge by overwriting API counts with any *newer* WebSocket counts
-            // This ensures we keep any real-time counts received *during* the API call
             newMap.putAll(currentWebSocketCounts)
             newMap
         }
     }
-    // --- END NEW FUNCTION ---
 }

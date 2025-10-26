@@ -22,23 +22,25 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Videocam
-// REMOVED: Audiotrack and Description icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-// REMOVED: ImageVector import
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-// REMOVED: TextOverflow import
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -78,9 +80,7 @@ fun ChatScreen(
 
     var unreadCount by remember { mutableIntStateOf(0) }
 
-    // --- REVERTED LAUNCHER ---
     val filePickerLauncher = rememberLauncherForActivityResult(
-        // Back to image and video only
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
@@ -95,19 +95,17 @@ fun ChatScreen(
             @Suppress("UNUSED_VARIABLE")
             val file = context.contentResolver.getFile(context, it)
 
-            // Determine the messageType based on the MIME type
             val messageType = when {
                 mimeType.startsWith("image/") -> "image"
                 mimeType.startsWith("video/") -> "video"
-                // REMOVED: Audio and File cases
-                else -> "file" // Default, though shouldn't happen with this launcher
+                mimeType.startsWith("audio/") -> "audio"
+                else -> "file"
             }
 
             chatViewModel.sendMediaMessage(currentUserId, friendId, it, mimeType, messageType)
             unreadCount = 0
         }
     }
-    // --- END REVERTED LAUNCHER ---
 
     LaunchedEffect(userId, friendId) {
         userId?.let {
@@ -130,15 +128,19 @@ fun ChatScreen(
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
             coroutineScope.launch {
+                // Scroll to the newest message (index 0 because reverseLayout = true)
                 listState.animateScrollToItem(0)
             }
+            // Reset unread count when a new message arrives (or history loads)
             unreadCount = 0
         }
     }
 
+
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .collect { firstVisibleIndex ->
+                // If the user scrolls up to the newest message, clear the count
                 if (firstVisibleIndex == 0) {
                     if (unreadCount > 0) {
                         unreadCount = 0
@@ -177,8 +179,7 @@ fun ChatScreen(
                     }
                 },
                 onPlusClick = {
-                    // Back to image/video only
-                    filePickerLauncher.launch("image/*,video/*")
+                    filePickerLauncher.launch("*/*")
                 }
             )
         }
@@ -206,15 +207,27 @@ fun ChatScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(horizontal = 8.dp),
-                    reverseLayout = true
+                    reverseLayout = true // Newest messages at the bottom
                 ) {
-                    items(messages.reversed()) { message ->
+                    items(messages.reversed(), key = { message -> message.id }) { message ->
                         MessageBubbleWithMenu(
                             message = message,
-                            onMediaClick = { mediaUrl ->
-                                // Only image/video are possible now
-                                val encodedUrl = URLEncoder.encode(mediaUrl, "UTF-8")
-                                navController.navigate("media_viewer/$encodedUrl")
+                            onMediaClick = { msg ->
+                                if (msg.mediaUrl == null) return@MessageBubbleWithMenu
+
+                                when (msg.messageType) {
+                                    "image" -> {
+                                        val encodedUrl = URLEncoder.encode(msg.mediaUrl, "UTF-8")
+                                        navController.navigate("media_viewer/$encodedUrl")
+                                    }
+                                    "video", "file", "audio" -> {
+                                        try {
+                                            uriHandler.openUri(msg.mediaUrl)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Could not open file.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
                             },
                             onDelete = { messageId: Long ->
                                 userId?.let {
@@ -227,6 +240,7 @@ fun ChatScreen(
                 }
             }
 
+            // Floating action button for unread messages (optional)
             if (unreadCount > 0) {
                 FloatingActionButton(
                     onClick = {
@@ -239,6 +253,7 @@ fun ChatScreen(
                         .align(Alignment.BottomEnd)
                         .padding(
                             end = 16.dp,
+                            // Adjust padding based on the bottom bar's height
                             bottom = innerPadding.calculateBottomPadding() + 8.dp
                         )
                         .size(56.dp),
@@ -258,22 +273,24 @@ fun ChatScreen(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDelete: (Long) -> Unit) {
+fun MessageBubbleWithMenu(message: Message, onMediaClick: (Message) -> Unit, onDelete: (Long) -> Unit) {
     val isMyMessage = message.author == MessageAuthor.ME
     val horizontalArrangement = if (isMyMessage) Arrangement.End else Arrangement.Start
 
     var showMenuIcon by remember { mutableStateOf(false) }
     var showTimestampMenu by remember { mutableStateOf(false) }
 
-    val canDelete = isMyMessage
+    // Only allow deletion if it's my message and it's not currently sending
+    val canDelete = isMyMessage && message.status != MessageStatus.SENDING
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp),
         horizontalArrangement = horizontalArrangement,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically // Align items vertically
     ) {
+        // Show options menu icon for the other user's messages
         if (!isMyMessage) {
             AnimatedVisibility(
                 visible = showMenuIcon,
@@ -282,7 +299,7 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(48.dp) // Provide ample clickable area
                         .clickable { showTimestampMenu = true },
                     contentAlignment = Alignment.Center
                 ) {
@@ -293,24 +310,61 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
                     ) {
                         DropdownMenuItem(
                             text = { Text("Sent: ${message.timestamp}") },
-                            onClick = { showTimestampMenu = false }
+                            onClick = { showTimestampMenu = false } // Just dismiss
                         )
+                        // Add other options for received messages here if needed
                     }
                 }
             }
         }
 
+        // The actual message content bubble
         MessageBubbleContent(
             message = message,
-            onMediaClick = onMediaClick,
-            onBubbleClick = { showMenuIcon = !showMenuIcon },
+            onBubbleClick = {
+                // Only handle clicks if the message is fully sent
+                if (message.status == MessageStatus.SENT) {
+                    if (message.mediaUrl != null) {
+                        onMediaClick(message) // Trigger media action
+                    } else {
+                        showMenuIcon = !showMenuIcon // Toggle menu visibility for text messages
+                    }
+                }
+                // Do nothing if SENDING or FAILED
+            },
             onBubbleLongPress = {
+                // Always allow long press to show options, regardless of status
                 showMenuIcon = true
                 showTimestampMenu = true
             }
         )
 
+        // Show status indicator and options menu icon for my messages
         if (isMyMessage) {
+            // Status Indicator (Spinner or Error Icon)
+            when (message.status) {
+                MessageStatus.SENDING -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .padding(horizontal = 4.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+                MessageStatus.FAILED -> {
+                    Icon(
+                        imageVector = Icons.Default.Error,
+                        contentDescription = "Failed to send",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                }
+                MessageStatus.SENT -> {
+                    // Don't show anything for sent messages here
+                }
+            }
+
+            // Options Menu Icon (Timestamp, Delete)
             AnimatedVisibility(
                 visible = showMenuIcon,
                 enter = fadeIn(),
@@ -331,13 +385,13 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
                             text = { Text("Sent: ${message.timestamp}") },
                             onClick = { showTimestampMenu = false }
                         )
-                        HorizontalDivider()
-                        if (canDelete) {
+                        HorizontalDivider() // Separator
+                        if (canDelete) { // Only show delete if allowed
                             DropdownMenuItem(
                                 text = { Text("Delete Message", color = MaterialTheme.colorScheme.error) },
                                 onClick = {
                                     onDelete(message.id)
-                                    showTimestampMenu = false
+                                    showTimestampMenu = false // Dismiss menu after action
                                 }
                             )
                         }
@@ -348,71 +402,118 @@ fun MessageBubbleWithMenu(message: Message, onMediaClick: (String) -> Unit, onDe
     }
 }
 
-// --- REVERTED COMPOSABLE ---
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubbleContent(
     message: Message,
-    onMediaClick: (String) -> Unit,
     onBubbleClick: () -> Unit,
     onBubbleLongPress: () -> Unit
 ) {
     val isMyMessage = message.author == MessageAuthor.ME
-    val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0)
+    val bubbleColor = if (isMyMessage) Color(0xFFD0F0C0) else Color(0xFFF0F0F0) // Light green for me, light gray for them
+    // Define bubble shapes based on sender
     val shape = if (isMyMessage) {
-        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp)
+        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 16.dp) // Tail on bottom right
     } else {
-        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp)
+        RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomEnd = 16.dp) // Tail on bottom left
     }
 
-    val isClickable = message.messageType != "text"
+    // Make bubble semi-transparent if it's currently sending
+    val bubbleAlpha = if (message.status == MessageStatus.SENDING) 0.5f else 1.0f
 
     Box(
         modifier = Modifier
-            .clip(shape)
-            .background(bubbleColor)
-            .combinedClickable(
-                onClick = {
-                    if (isClickable && message.mediaUrl != null) {
-                        onMediaClick(message.mediaUrl)
-                    } else {
-                        onBubbleClick()
-                    }
-                },
+            .clip(shape) // Apply the rounded corner shape
+            .background(bubbleColor) // Set the background color
+            .alpha(bubbleAlpha) // Apply transparency if sending
+            .combinedClickable( // Handle both click and long press
+                onClick = onBubbleClick,
                 onLongClick = onBubbleLongPress
             )
-            .widthIn(max = 280.dp) // Max width constraint
+            .widthIn(max = 280.dp) // Constrain the maximum width of the bubble
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-
-            // Display media if present (image or video)
-            if (message.mediaUrl != null && (message.messageType == "image" || message.messageType == "video")) {
-                AsyncImage(
-                    model = message.mediaUrl,
-                    contentDescription = "Attachment",
-                    modifier = Modifier
-                        .size(200.dp)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentScale = ContentScale.Crop,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-            }
-
-            // Text Content (Only if messageType is 'text')
-            if (message.messageType == "text" && !message.text.isNullOrBlank()) {
+        // Use a `when` block to display content based on message type
+        when (message.messageType) {
+            "text" -> {
                 Text(
-                    text = message.text, // Safe non-null assertion removed
+                    text = message.text ?: "", // Display the text content
                     color = Color.Black,
                     fontSize = 16.sp,
-                    modifier = Modifier.wrapContentWidth(Alignment.Start)
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .wrapContentWidth(Alignment.Start) // Align text to the start
+                )
+            }
+            "image" -> {
+                // Display image using AsyncImage, inside a Column for potential future captions
+                Column(modifier = Modifier.padding(4.dp)) { // Minimal padding around the image
+                    AsyncImage(
+                        model = message.mediaUrl, // Load image from URL
+                        contentDescription = "Attachment",
+                        modifier = Modifier
+                            .size(200.dp) // Fixed size for the image preview
+                            .clip(RoundedCornerShape(12.dp)), // Slightly rounded corners for the image itself
+                        contentScale = ContentScale.Crop, // Crop image to fit the bounds
+                    )
+                    // If you want captions for images, add Text here conditional on message.text != null
+                }
+            }
+            "video" -> {
+                // Display video using the FileAttachmentBubble with a video icon
+                FileAttachmentBubble(message = message, icon = Icons.Default.Videocam)
+            }
+            "file" -> {
+                // Display file using the FileAttachmentBubble with the default document icon
+                FileAttachmentBubble(message = message)
+            }
+            "audio" -> {
+                // Display audio using the FileAttachmentBubble (could use a specific audio icon)
+                // TODO: Replace Description icon with a dedicated audio icon if available
+                FileAttachmentBubble(message = message, icon = Icons.Default.Description)
+            }
+            else -> {
+                // Fallback for any unknown message types
+                Text(
+                    text = "Unsupported message type",
+                    color = Color.Gray,
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
         }
     }
 }
-// --- END REVERTED COMPOSABLE ---
 
-// REMOVED: FileAttachmentBubble composable
+@Composable
+fun FileAttachmentBubble(
+    message: Message,
+    icon: ImageVector = Icons.Default.Description // Default icon is a document
+) {
+    // Row to display icon and filename side-by-side
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 8.dp) // Standard padding within the bubble
+            .wrapContentWidth(), // Bubble width adjusts to content
+        verticalAlignment = Alignment.CenterVertically // Center icon and text vertically
+    ) {
+        Icon(
+            imageVector = icon, // Use the provided icon (document, video, etc.)
+            contentDescription = "File Attachment",
+            modifier = Modifier.size(40.dp), // Fixed size for the icon
+            tint = MaterialTheme.colorScheme.primary // Use primary color for the icon tint
+        )
+        Spacer(modifier = Modifier.width(8.dp)) // Space between icon and text
+        Text(
+            text = message.text ?: "file", // Display filename (stored in message.text) or "file" as fallback
+            color = Color.Black,
+            fontSize = 16.sp,
+            maxLines = 2, // Allow up to two lines for long filenames
+            overflow = TextOverflow.Ellipsis // Add ellipsis (...) if filename is too long
+        )
+    }
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -422,7 +523,7 @@ fun FullScreenMediaViewer(navController: NavController, mediaUrl: String) {
             TopAppBar(
                 title = { Text("Media Viewer", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
+                    IconButton(onClick = { navController.popBackStack() }) { // Navigate back on click
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 }
@@ -432,53 +533,64 @@ fun FullScreenMediaViewer(navController: NavController, mediaUrl: String) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            contentAlignment = Alignment.Center
+                .padding(innerPadding), // Apply padding from Scaffold
+            contentAlignment = Alignment.Center // Center the content (the image)
         ) {
-            ZoomableImage(mediaUrl)
+            ZoomableImage(mediaUrl) // Display the zoomable image component
         }
     }
 }
 
 @Composable
 fun ZoomableImage(mediaUrl: String) {
+    // State variables for scale and offset, remembered across recompositions
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
-    val maxScale = 5f
-    val minScale = 1f
+    val maxScale = 5f // Maximum zoom level
+    val minScale = 1f // Minimum zoom level (original size)
 
-    val fullUrl = mediaUrl
+    // Construct the full URL for the image (assuming it's relative)
+    // NOTE: This might need adjustment if your URLs are already absolute
+    val fullUrl = mediaUrl // If mediaUrl is already absolute, just use it
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // Add pointer input detector for zoom and pan gestures
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
+                    // Calculate new scale, clamping between min and max
                     val newScale = (scale * zoom).coerceIn(minScale, maxScale)
 
+                    // Calculate maximum allowed translation based on new scale
                     val boundsWidth = size.width * (newScale - 1) / 2
                     val boundsHeight = size.height * (newScale - 1) / 2
 
+                    // Calculate new offset, applying pan and clamping within bounds
                     val newOffset = if (newScale > 1f) {
                         Offset(
                             x = (offset.x + pan.x * newScale).coerceIn(-boundsWidth, boundsWidth),
                             y = (offset.y + pan.y * newScale).coerceIn(-boundsHeight, boundsHeight)
                         )
                     } else {
+                        // Reset offset if scaled back to original size
                         Offset.Zero
                     }
 
+                    // Update the state variables
                     scale = newScale
                     offset = newOffset
                 }
             }
     ) {
+        // Display the image using AsyncImage
         AsyncImage(
-            model = fullUrl,
+            model = fullUrl, // URL of the image
             contentDescription = "Chat Media",
-            contentScale = ContentScale.Fit,
+            contentScale = ContentScale.Fit, // Fit the image within the bounds initially
             modifier = Modifier
                 .fillMaxSize()
+                // Apply graphics layer transformations for scale and translation
                 .graphicsLayer(
                     scaleX = scale,
                     scaleY = scale,
@@ -498,24 +610,28 @@ fun ChatTopBar(
 ) {
     TopAppBar(
         title = {
+            // Row for profile icon and friend's name
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.AccountCircle, contentDescription = "Profile", modifier = Modifier.size(36.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(friendName, fontWeight = FontWeight.SemiBold)
+                Text(friendName, fontWeight = FontWeight.SemiBold) // Display friend's name
             }
         },
         navigationIcon = {
+            // Back button
             IconButton(onClick = { navController.popBackStack() }) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
         },
         actions = {
+            // Video call button
             IconButton(onClick = onVideoCallClick) {
                 Icon(Icons.Default.Videocam, contentDescription = "Video Call")
             }
         },
+        // Customize TopAppBar colors
         colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = BubblesBlue,
+            containerColor = BubblesBlue, // Use the custom blue color
             titleContentColor = Color.Black,
             navigationIconContentColor = Color.Black,
             actionIconContentColor = Color.Black
@@ -525,39 +641,45 @@ fun ChatTopBar(
 
 @Composable
 fun ChatInputBar(onSendMessage: (String) -> Unit, onPlusClick: () -> Unit) {
+    // State for the text field content
     var text by remember { mutableStateOf("") }
 
+    // Surface for elevation and background color
     Surface(
-        shadowElevation = 8.dp,
-        color = BubblesBlue
+        shadowElevation = 8.dp, // Add a shadow
+        color = BubblesBlue // Use the custom blue color
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(horizontal = 8.dp, vertical = 8.dp), // Padding around the input bar
+            verticalAlignment = Alignment.CenterVertically // Center items vertically
         ) {
+            // Attachment button (+)
             IconButton(onClick = onPlusClick) {
                 Icon(Icons.Default.Add, contentDescription = "Attach")
             }
+            // Text input field
             TextField(
                 value = text,
-                onValueChange = { text = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Message...") },
-                shape = RoundedCornerShape(24.dp),
+                onValueChange = { text = it }, // Update state on text change
+                modifier = Modifier.weight(1f), // Take up remaining space
+                placeholder = { Text("Message...") }, // Hint text
+                shape = RoundedCornerShape(24.dp), // Rounded corners
+                // Customize TextField colors for a clean look
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.White,
                     unfocusedContainerColor = Color.White,
                     disabledContainerColor = Color.White,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
+                    focusedIndicatorColor = Color.Transparent, // No underline
+                    unfocusedIndicatorColor = Color.Transparent // No underline
                 )
             )
+            // Send button
             IconButton(onClick = {
-                if (text.isNotBlank()) {
-                    onSendMessage(text)
-                    text = ""
+                if (text.isNotBlank()) { // Only send if text is not empty
+                    onSendMessage(text) // Trigger send action
+                    text = "" // Clear the text field
                 }
             }) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send Message")

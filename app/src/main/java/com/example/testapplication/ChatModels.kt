@@ -7,6 +7,15 @@ enum class MessageAuthor {
     ME, THEM
 }
 
+// --- NEW ENUM ---
+// Represents the send status of a message (for optimistic UI)
+enum class MessageStatus {
+    SENDING,
+    SENT,
+    FAILED
+}
+// --- END NEW ENUM ---
+
 // Represents a single chat message
 data class Message(
     // CRITICAL FIX: Change ID type from UUID to Long, and give it a dummy default value
@@ -18,5 +27,6 @@ data class Message(
     val timestamp: String,
     val date: String? = null,
     val mediaUrl: String? = null,
-    val messageType: String = "text"
+    val messageType: String = "text",
+    val status: MessageStatus = MessageStatus.SENT // <-- NEW FIELD
 )

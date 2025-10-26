@@ -22,6 +22,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
+import java.util.concurrent.TimeUnit // For local ID
 
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
@@ -33,9 +34,6 @@ data class ChatUiState(
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val userRepository = UserRepository(RetrofitInstance.api)
 
-    // --- CHANGED ---
-    // We no longer create a local KtorWebSocketService instance.
-    // We will reference the global 'KtorWebSocketService' object directly.
     private val ktorWebSocketService = KtorWebSocketService
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -56,35 +54,29 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         currentChatUserId = currentUserId
         currentChatFriendId = friendId
 
-        // --- NEW ---
-        // 1. Tell the global service which chat is now active (to stop unread counts)
         ktorWebSocketService.setCurrentActiveChat(friendId)
-
-        // 2. Clear the unread count for this specific chat
         ktorWebSocketService.clearUnreadCountFor(friendId)
-        // --- END NEW ---
 
-        // --- Setup WebSocket Listener for incoming messages (including echo) ---
         ktorWebSocketService.messages
             .onEach { messageResponse ->
-                // This block adds messages received from the server (including the sender's echo)
                 val uiMessage = messageResponse.toUiMessage(currentUserId)
 
-                // --- NEW ---
-                // Only add the message if it belongs to this conversation
-                val isMyMessage = messageResponse.senderId == currentUserId && messageResponse.receiverId == friendId
-                val isTheirMessage = messageResponse.senderId == friendId && messageResponse.receiverId == currentUserId
-
-                if (isMyMessage || isTheirMessage) {
+                if (messageResponse.senderId == currentUserId && messageResponse.receiverId == friendId) {
+                    _uiState.update { currentState ->
+                        val newList = currentState.messages.filterNot {
+                            it.status == MessageStatus.SENDING && it.text == uiMessage.text
+                        }
+                        currentState.copy(messages = newList + uiMessage, moderationWarning = null)
+                    }
+                }
+                else if (messageResponse.senderId == friendId && messageResponse.receiverId == currentUserId) {
                     _uiState.update { currentState ->
                         currentState.copy(messages = currentState.messages + uiMessage, moderationWarning = null)
                     }
                 }
-                // --- END NEW ---
             }
             .launchIn(viewModelScope)
 
-        // --- Setup WebSocket Listener for moderation warnings ---
         ktorWebSocketService.warnings
             .onEach { warning ->
                 _uiState.update { currentState ->
@@ -93,28 +85,17 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             }
             .launchIn(viewModelScope)
 
-        // --- NEW LISTENER: For real-time deletion events from server ---
         ktorWebSocketService.deletionEvents
             .onEach { messageIdToDelete ->
                 _uiState.update { currentState ->
-                    // Filter out the message by the ID received from the server
                     currentState.copy(messages = currentState.messages.filter { it.id != messageIdToDelete })
                 }
             }
             .launchIn(viewModelScope)
-        // -----------------------------------------------------------------
 
-        // --- REMOVED ---
-        // We no longer call connect() here. It's handled by MainActivity.
-        // viewModelScope.launch {
-        //     ktorWebSocketService.connect(currentUserId)
-        // }
-
-        // Fetch the initial message history via HTTP
         fetchHistory(currentUserId, friendId)
     }
 
-    // Extracted history fetching to its own function
     private fun fetchHistory(currentUserId: UUID, friendId: UUID) {
         userRepository.getConversationHistory(currentUserId, friendId).enqueue(object : Callback<List<MessageResponse>> {
             override fun onResponse(call: Call<List<MessageResponse>>, response: Response<List<MessageResponse>>) {
@@ -133,45 +114,101 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         })
     }
 
-    // --- FIXED FUNCTION: sendMediaMessage (No optimistic update) ---
     fun sendMediaMessage(currentUserId: UUID, receiverId: UUID, fileUri: Uri, mimeType: String, messageType: String) {
         _uiState.update { it.copy(moderationWarning = null) }
-        // Relying on WebSocket echo to update UI.
 
-        // 1. Upload file and then send WebSocket message
         val file: File = appContext.contentResolver.getFile(appContext, fileUri)
+        val fileName = file.name
+
+        val determinedMessageType = when {
+            mimeType.startsWith("image/") -> "image"
+            mimeType.startsWith("video/") -> "video"
+            mimeType.startsWith("audio/") -> "audio"
+            else -> "file"
+        }
+
+        val localMessageId = System.currentTimeMillis()
+
+        val tempMessage = Message(
+            id = localMessageId,
+            text = fileName,
+            author = MessageAuthor.ME,
+            authorId = currentUserId,
+            timestamp = getLocalTimestamp(),
+            mediaUrl = null,
+            messageType = determinedMessageType,
+            status = MessageStatus.SENDING
+        )
+
+        _uiState.update { it.copy(messages = it.messages + tempMessage) }
+
         val requestFile = file.asRequestBody(mimeType.toMediaTypeOrNull())
         val filePart = MultipartBody.Part.createFormData("file", file.name, requestFile)
+
+        Log.d("ChatViewModel", "Starting optimistic media upload for: $fileName")
 
         userRepository.uploadMediaFile(filePart).enqueue(object : Callback<MediaUploadResponse> {
             override fun onResponse(call: Call<MediaUploadResponse>, response: Response<MediaUploadResponse>) {
                 val mediaUrl = response.body()?.mediaUrl
                 if (response.isSuccessful && mediaUrl != null) {
+                    Log.d("ChatViewModel", "Optimistic upload SUCCESS. Sending WebSocket message.")
                     viewModelScope.launch {
                         val messageToSend = MessageCreate(
                             receiverId = receiverId,
-                            content = null,
+                            content = fileName,
                             mediaUrl = mediaUrl,
-                            messageType = messageType
+                            messageType = determinedMessageType
                         )
                         ktorWebSocketService.sendMessage(messageToSend)
                     }
                 } else {
-                    Log.e("ChatViewModel", "Media upload failed: ${response.code()}")
+                    // --- THIS IS THE FIRST FIX ---
+                    Log.e("ChatViewModel", "Optimistic upload FAILED in onResponse: ${response.code()}")
+                    _uiState.update { currentState ->
+                        // Find the index of the message
+                        val messageIndex = currentState.messages.indexOfFirst { it.id == localMessageId }
+                        if (messageIndex == -1) {
+                            return@update currentState // Message not found, do nothing
+                        }
+                        // Create an updated message with FAILED status
+                        val updatedMessage = currentState.messages[messageIndex].copy(status = MessageStatus.FAILED)
+
+                        // Create a new list and set the updated message at the index
+                        val newList = currentState.messages.toMutableList().apply {
+                            this[messageIndex] = updatedMessage
+                        }
+                        currentState.copy(messages = newList) // Return new state with new list
+                    }
+                    // --- END OF FIX ---
                 }
             }
+
             override fun onFailure(call: Call<MediaUploadResponse>, t: Throwable) {
-                Log.e("ChatViewModel", "Media upload network error: ${t.message}")
+                // --- THIS IS THE SECOND FIX ---
+                Log.e("ChatViewModel", "Optimistic upload FAILED in onFailure: ${t.message}")
+                _uiState.update { currentState ->
+                    // Find the index of the message
+                    val messageIndex = currentState.messages.indexOfFirst { it.id == localMessageId }
+                    if (messageIndex == -1) {
+                        return@update currentState // Message not found, do nothing
+                    }
+                    // Create an updated message with FAILED status
+                    val updatedMessage = currentState.messages[messageIndex].copy(status = MessageStatus.FAILED)
+
+                    // Create a new list and set the updated message at the index
+                    val newList = currentState.messages.toMutableList().apply {
+                        this[messageIndex] = updatedMessage
+                    }
+                    currentState.copy(messages = newList) // Return new state with new list
+                }
+                // --- END OF FIX ---
             }
         })
     }
 
-    // --- FIXED FUNCTION: sendMessage (No optimistic update) ---
     fun sendMessage(receiverId: UUID, content: String, currentUserId: UUID) {
         _uiState.update { it.copy(moderationWarning = null) }
-        // Relying on WebSocket echo to update UI.
 
-        // 1. Send the message via WebSocket
         viewModelScope.launch {
             val messageToSend = MessageCreate(
                 receiverId = receiverId,
@@ -183,28 +220,22 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // NEW FUNCTION: Handles message deletion
     fun deleteMessage(messageId: Long, currentUserId: UUID) {
-        // 1. Optimistically remove the message from the UI on the sender's side
         _uiState.update { currentState ->
             currentState.copy(messages = currentState.messages.filter { it.id != messageId })
         }
 
-        // 2. Send deletion request to the server
         userRepository.deleteChatMessage(messageId, currentUserId).enqueue(object : Callback<Unit> {
             override fun onResponse(call: Call<Unit>, response: Response<Unit>) {
                 if (!response.isSuccessful) {
                     Log.e("ChatViewModel", "Failed to delete message: ${response.code()}")
-                    // If deletion fails, re-fetch history to resynchronize the UI
                     currentChatUserId?.let { userId ->
                         currentChatFriendId?.let { friendId ->
                             fetchHistory(userId, friendId)
                         }
                     }
                 }
-                // NOTE: The recipient's deletion is handled by the WebSocket listener (deletionEvents)
             }
-
             override fun onFailure(call: Call<Unit>, t: Throwable) {
                 Log.e("ChatViewModel", "Network error on delete message", t)
             }
@@ -214,35 +245,28 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        // --- NEW ---
-        // Tell the global service that no chat is active anymore.
-        // This re-enables unread counts for this chat.
         ktorWebSocketService.setCurrentActiveChat(null)
-
-        // --- REMOVED ---
-        // We no longer call disconnect() here.
-        // viewModelScope.launch {
-        //     ktorWebSocketService.disconnect()
-        // }
     }
 }
 
 private fun MessageResponse.toUiMessage(currentUserId: UUID): Message {
     val author = if (this.senderId == currentUserId) MessageAuthor.ME else MessageAuthor.THEM
+
     val contentText = this.content
+
     val mediaFullPath = if (this.mediaUrl != null) {
-        // NOTE: Assumes RetrofitInstance.BASE_URL is accessible and ends with '/'
         RetrofitInstance.BASE_URL.dropLast(1) + this.mediaUrl
     } else {
         null
     }
     return Message(
-        id = this.id, // Ensure the server ID is used here
+        id = this.id,
         text = contentText,
         author = author,
         authorId = this.senderId,
         timestamp = this.timestamp.substring(11, 16),
         mediaUrl = mediaFullPath,
-        messageType = this.messageType
+        messageType = this.messageType,
+        status = MessageStatus.SENT
     )
 }

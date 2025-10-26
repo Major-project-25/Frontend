@@ -100,5 +100,5 @@ dependencies {
     implementation("io.ktor:ktor-client-websockets:2.3.11")
     implementation("io.ktor:ktor-client-content-negotiation:2.3.11")
     implementation("io.ktor:ktor-serialization-gson:2.3.11")
-
+    //implementation("com.squareup.okhttp3:okhttp-logging-interceptor:4.12.0")
 }
