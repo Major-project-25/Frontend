@@ -21,6 +21,15 @@ enum class ConnectionStatus {
     DISCONNECTED, CONNECTING, CONNECTED, FAILED
 }
 
+// --- NEW ---
+// This data class represents the JSON we must send back to the server
+// for a read receipt, as defined in your friend's backend code.
+private data class ReadAck(
+    val type: String = "read_ack",
+    val message_id: Long
+)
+// --- END NEW ---
+
 object KtorWebSocketService {
     private val client = HttpClient(CIO) {
         install(WebSockets) {
@@ -105,9 +114,20 @@ object KtorWebSocketService {
                                     val message = gson.fromJson(text, MessageResponse::class.java)
                                     _messages.emit(message)
 
-                                    val isUnread = message.senderId != _currentActiveChatId.value
+                                    // --- THIS IS THE NEW LOGIC BLOCK FOR "READ_ACK" ---
                                     val isFromOtherUser = message.senderId != userId
+                                    val currentChatId = _currentActiveChatId.value
 
+                                    if (isFromOtherUser && message.senderId == currentChatId) {
+                                        // This message is FROM the person we are actively chatting with.
+                                        // Send the "read_ack" back to the server immediately.
+                                        sendReadAck(message.id)
+                                    }
+                                    // --- END OF NEW LOGIC BLOCK ---
+
+                                    // This (existing) logic handles the unread COUNT for the Home screen.
+                                    // It correctly checks if the message is from a chat we are *not* looking at.
+                                    val isUnread = message.senderId != currentChatId
                                     if (isUnread && isFromOtherUser) {
                                         _unreadCounts.update { currentMap ->
                                             val newMap = currentMap.toMutableMap()
@@ -150,6 +170,30 @@ object KtorWebSocketService {
         }
         // --- END KEY LOGIC ---
     }
+
+    // --- NEW ---
+    /**
+     * Sends a "read_ack" message to the server to notify that
+     * a specific message has been read by the user on the active chat screen.
+     */
+    private suspend fun sendReadAck(messageId: Long) {
+        if (session == null) {
+            Log.e(TAG, "Cannot send read_ack: Session is null.")
+            return
+        }
+        try {
+            // Create the ReadAck object
+            val ackMessage = ReadAck(message_id = messageId)
+            // Convert it to JSON
+            val jsonAck = gson.toJson(ackMessage)
+
+            Log.d(TAG, "---> SENDING READ_ACK: $jsonAck")
+            session?.send(Frame.Text(jsonAck))
+        } catch (e: Exception) {
+            Log.e(TAG, "!!! FAILED TO SEND READ_ACK: ${e.message}", e)
+        }
+    }
+    // --- END NEW ---
 
     suspend fun disconnect() {
         Log.d(TAG, "Disconnect called manually.")
